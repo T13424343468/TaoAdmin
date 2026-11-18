@@ -2319,3 +2319,4 @@
 [21:16:57 INF] Executed endpoint 'HTTP: GET /health'
 [21:16:57 INF] HTTP GET /health responded 200 in 0.4217 ms
 [21:16:57 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5001/health - 200 null application/json; charset=utf-8 0.7901ms
+setsid: failed to execute dotnet: No such file or directory
