@@ -355,13 +355,32 @@ const openKeys = ref<string[]>([]);
  */
 function renderIcon(name?: string) {
   if (!name) return undefined;
-  const icon = (AntIcons as any)[name];
+  // 菜单图标库存的是语义名（如 Setting/FolderOpen），图标组件实际导出 XxxOutlined
+  const icon = (AntIcons as any)[name] || (AntIcons as any)[`${name}Outlined`];
   return icon ? () => h(icon) : undefined;
+}
+
+/**
+ * vue-router 5 的 RouteRecordNormalized 不再暴露 parent 字段（升级回归根因，
+ * 曾导致所有挂 Root 的一级菜单——含首页/文件管理——被 menuBuilder 过滤掉）。
+ * 这里用 resolve 反查 matched 推父级，交回 menuBuilder 原有判定，不改其契约。
+ */
+function parentNameOf(path: string): unknown {
+  try {
+    const matched = router.resolve(path).matched;
+    if (matched.length >= 2) return matched[matched.length - 2]?.name;
+  } catch {
+    // 解析失败按无父级处理（菜单不渲染，不影响路由本身）
+  }
+  return undefined;
 }
 
 const menuItems = computed<ItemType[]>(() => {
   // 单一来源：router.getRoutes()（菜单重复修复，见 utils/menuBuilder.ts 注释）
-  const allRoutes = [...router.getRoutes().values()] as unknown as RouteLike[];
+  const allRoutes = ([...router.getRoutes().values()] as unknown as RouteLike[]).map((r) => ({
+    ...r,
+    parent: { name: parentNameOf(r.path) },
+  }));
   const menuTree = buildMenuItems(allRoutes);
   return toMenuItems(menuTree);
 });
