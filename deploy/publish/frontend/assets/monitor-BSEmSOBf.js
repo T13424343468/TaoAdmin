@@ -1,1 +1,0 @@
-import{u as e}from"./router-DFGqQD13.js";function t(){return e({url:`/monitor/services`,method:`get`})}function n(t){return e({url:`/monitor/logs`,method:`get`,params:t})}function r(){return e({url:`/identity/online-users`,method:`get`})}function i(t){return e({url:`/identity/online-users/${encodeURIComponent(t)}`,method:`delete`})}export{i,r as n,t as r,n as t};
