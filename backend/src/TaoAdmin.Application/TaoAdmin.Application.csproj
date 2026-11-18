@@ -17,6 +17,7 @@
     <PackageReference Include="MiniExcel" Version="1.47.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageReference Include="SqlSugarCore" Version="5.1.4.221" />
+      <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>

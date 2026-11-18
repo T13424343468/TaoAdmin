@@ -16,6 +16,7 @@
   <ItemGroup>
     <!-- 引用 ASP.NET Core 框架，供权限授权 Handler / 基础控制器使用 HttpContext -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+      <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>
