@@ -1,7 +1,8 @@
 ﻿<template>
   <a-layout class="app-layout">
-    <!-- 侧边栏 -->
+    <!-- 侧边栏：窄屏（<768px）收进抽屉，避免挤压内容区（响应式零变形令） -->
     <a-layout-sider
+      v-if="!isNarrow"
       v-model:collapsed="collapsed"
       :trigger="null"
       collapsible
@@ -23,12 +24,34 @@
         @click="onMenuClick"
       />
     </a-layout-sider>
+    <a-drawer
+      v-else
+      :open="siderDrawerOpen"
+      placement="left"
+      :width="264"
+      :closable="false"
+      @close="siderDrawerOpen = false"
+    >
+      <div class="logo">
+        <img v-if="siteStore.config.siteLogo" :src="siderLogoUrl" alt="站点 Logo" class="logo-img" />
+        <span v-else class="logo-icon">⚙️</span>
+        <span class="logo-text">{{ siteStore.config.siteName }}</span>
+      </div>
+      <a-menu
+        v-model:selectedKeys="selectedKeys"
+        v-model:openKeys="openKeys"
+        mode="inline"
+        theme="dark"
+        :items="menuItems"
+        @click="onMenuClick"
+      />
+    </a-drawer>
 
     <a-layout>
       <!-- 顶栏 -->
       <a-layout-header class="app-header" :class="{ 'app-header-dark': themeStore.isDark }">
         <div class="header-left">
-          <a-button type="text" @click="collapsed = !collapsed">
+          <a-button type="text" @click="isNarrow ? (siderDrawerOpen = !siderDrawerOpen) : (collapsed = !collapsed)">
             <template #icon>
               <MenuUnfoldOutlined v-if="collapsed" />
               <MenuFoldOutlined v-else />
@@ -216,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, h, onMounted } from 'vue';
+import { ref, reactive, computed, watch, h, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import type { ItemType } from 'ant-design-vue';
@@ -310,6 +333,18 @@ const headerAvatarUrl = computed(() => {
 });
 
 const collapsed = ref(false);
+/** 窄屏（<768px）判定：侧栏转抽屉（响应式零变形令，2026-11-18） */
+const isNarrow = ref(false);
+const siderDrawerOpen = ref(false);
+let mediaQuery: MediaQueryList | null = null;
+function syncNarrow() {
+  isNarrow.value = window.matchMedia('(max-width: 767px)').matches;
+  if (!isNarrow.value) siderDrawerOpen.value = false;
+}
+syncNarrow();
+mediaQuery = window.matchMedia('(max-width: 767px)');
+mediaQuery.addEventListener('change', syncNarrow);
+onBeforeUnmount(() => mediaQuery?.removeEventListener('change', syncNarrow));
 const selectedKeys = ref<string[]>([route.path]);
 const openKeys = ref<string[]>([]);
 
@@ -522,6 +557,19 @@ async function onForceChangePwd() {
 
       .user-name {
         font-size: 14px;
+      }
+    }
+
+    /* 极窄屏（≤420px）：收敛非关键顶栏内容，防横向溢出（响应式零变形令） */
+    @media (max-width: 420px) {
+      gap: 8px;
+
+      .user-info {
+        padding: 0 4px;
+
+        .user-name {
+          display: none;
+        }
       }
     }
 

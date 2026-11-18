@@ -2,6 +2,7 @@
 
 > 面向实施与运维人员：从零环境到上线，以及日常运维操作。
 > 各配置项的详细注释直接看对应配置文件（含本地/线上示例），本文讲流程与要点。
+> 适用版本：2026-11-18 主干 ｜ 更新日期：2026-11-19
 
 ---
 
@@ -9,10 +10,11 @@
 
 | 组件 | 版本 | 用途 |
 |---|---|---|
-| .NET SDK | 8.0+ | 后端编译运行 |
+| .NET SDK | 10.0 | 后端编译运行 |
 | Node.js | 18+ | 前端构建 |
 | MySQL | 8.0 | 业务数据库 |
 | Redis | 7.0 | 缓存/心跳/刷新令牌 |
+| MinIO（可选） | 最新 RELEASE | 内网对象存储（文件中心切 minio Provider 时） |
 | Docker | 24+（可选） | 容器化部署 |
 | Nacos / ES | v2.2 / 8.x（可选） | 注册配置中心 / 日志存储 |
 
@@ -38,6 +40,26 @@ npm run dev        # http://localhost:5173，/api 自动代理到 5000
 
 验证：浏览器打开 http://localhost:5173 ，用 `admin / Admin@123` 登录。
 
+### 2.1 一键环境（沙箱/演示环境）
+
+环境被回收后一条命令恢复全套（MariaDB + Redis + 三服务 + 心跳 + 就绪等待）：
+
+```bash
+bash /root/workspace/taoadmin-env/provision.sh
+# 输出 PROVISION-DONE health=0 即三服务全绿（0=成功）
+```
+
+脚本拉起的三个服务（发布产物方式运行）：
+
+| 服务 | 端口 | 健康检查 |
+|---|---|---|
+| 网关 GatewayService | 5000 | curl http://localhost:5000/health |
+| 权限服务 IdentityService | 5001 | curl http://localhost:5001/health |
+| 任务服务 TaskService | 5002 | curl http://localhost:5002/health |
+
+> 注意：TaskService 必须拉起，缺失会让前端首页轮询熔断弹错。首次启动 IdentityService
+> 要做 CodeFirst 建表播种，脚本已给足 60 秒就绪等待。
+
 ## 3. 配置说明（本地 vs 线上）
 
 > 每个配置项的逐项注释见各 `appsettings.json`（内含本地/线上示例）。
@@ -55,6 +77,7 @@ npm run dev        # http://localhost:5173，/api 自动代理到 5000
 | 限流阈值 | GatewayService `RateLimiting` | 100 次/10 秒 | 按业务流量调整 |
 | 熔断阈值 | GatewayService `CircuitBreaker` | 连续 5 次失败，冷却 30 秒 | 按服务敏感度调整 |
 | 多租户开关 | IdentityService `MultiTenant:Enabled` | true | 单租户项目可改 false |
+| 文件存储 | IdentityService `FileStorage:Provider` | local（本地盘） | 对接内网 MinIO 改 minio（见第 15 节） |
 | Jwt:SecretKey | 三个服务一致 | 演示密钥 | 换 64 位随机串：`openssl rand -base64 64` |
 | Elasticsearch:Uri | 三个服务 | 空（不写 ES） | `http://elasticsearch:9200`（需要集中日志时） |
 | Nacos:Enabled | 三个服务 | false | 用注册/配置中心时改 true |
@@ -172,13 +195,18 @@ gunzip < backup/tao_admin_2026-10-30.sql.gz | mysql -uroot -p'***' tao_admin
 | 接口返回 429 请求太频繁 | 触发网关限流（默认 100 次/10 秒），确认是否被爬虫/压测拖累，按需调阈值 |
 | 接口返回 503 服务熔断中 | 目标服务连续失败被熔断：先恢复该服务，冷却 30 秒后自动恢复 |
 | 同一操作被执行两次 | 调用方未带 `Idempotency-Key` 请求头；防重接口必须随请求携带唯一键 |
+| 登录提示「验证码不正确或已过期」 | 默认每次登录都要验证码；验证码一次性消费（校验即删），输错/过期后点图刷新重取 |
+| 登录提示账号已锁定（HTTP 423） | 连续失败达阈值（默认 5 次）触发锁定（默认 15 分钟），到期自动解锁；可在「登录安全」页调整阈值 |
+| 自动化/脚本登录被验证码挡住 | 先 `GET /api/identity/audit/captcha` 取 SVG 答案再随登录提交；或在「登录安全」页关闭验证码开关 |
 
 ### 7.6 安全基线（上线必查）
 
 - [ ] 修改默认账号 admin 密码
 - [ ] 替换 JWT SecretKey（三服务一致）
+- [ ] 保留登录验证码开启（`loginCaptchaRequired`），按业务放宽/收紧失败锁定阈值
 - [ ] 数据库不用 root，弱口令全部替换
 - [ ] MySQL/Redis/Nacos/ES 不对公网暴露
+- [ ] MinIO 若接入，Endpoint/AccessKey/SecretKey 仅内网可用，不对公网暴露
 - [ ] 网关启用 HTTPS（Nginx/Ingress 层）
 - [ ] 开启日志集中存储，保留 ≥ 30 天
 
@@ -322,3 +350,31 @@ dotnet run --urls http://0.0.0.0:5003
 - **秒传去重**：按 MD5 判重，同内容文件全库只存一份；删除默认软删（`physicalDelete=true` 才清物理文件）；
 - **业务系统集成**：业务表只存上传返回的 `fileUrl` 相对路径，展示时拼文件中心地址；替换为 MinIO/OSS 时业务零改动；
 - 表结构（sys_file）由 CodeFirst 启动时自动创建，无需手工执行 SQL。
+
+## 15. 内置文件中心存储（本地盘 / MinIO 切换）
+
+基础框架内置文件中心（`/api/identity/files/**`）的存储经 `FileStorage:Provider` 切换，
+IdentityService `appsettings.json`：
+
+```jsonc
+"FileStorage": {
+  "Provider": "local",          // local = 本地磁盘（默认）；minio = 内网 MinIO 对象存储
+  "Root": "uploads",            // 仅 local 生效：本地盘存储根目录（相对 contentRoot）
+  "Minio": {                    // 仅 minio 生效：四项连接参数
+    "Endpoint": "http://minio.internal:9000",
+    "AccessKey": "xxx",
+    "SecretKey": "xxx",
+    "Bucket": "taoadmin"
+  }
+}
+```
+
+要点：
+
+- **数据不出内网**：MinIO Endpoint 指向内网对象存储（S3 兼容协议，AWS Signature V4 签名），
+  **禁止配置公有云 OSS**；
+- **对象键与本地盘同构**：`/uploads/{yyyy}/{MM}/{GUID}{ext}`，业务侧保存相对路径，切 Provider 无感；
+- **本地盘持久化**：Provider=local 时务必把 `FileStorage:Root` 目录挂 named volume 或持久盘，容器升级不丢文件；
+- **秒传去重**：同 MD5 未删记录直接复用，全库一份物理文件（sys_file 表由 CodeFirst 自动建）；
+- **下载权限**：下载仅要求登录令牌，无令牌返回 401；上传/分页/删除要求 `sys:file:manage` 权限；
+- 与第 14 节的独立解决方案 TaoFiles 互不依赖：基础框架内业务用内置文件中心即可，无需额外部署。

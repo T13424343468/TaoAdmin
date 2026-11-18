@@ -36,6 +36,19 @@
           </a-input-password>
         </a-form-item>
 
+        <a-form-item v-if="captcha.svg" label="验证码" name="captchaCode">
+          <div class="captcha-row">
+            <a-input
+              v-model:value="form.captchaCode"
+              size="large"
+              placeholder="请输入验证码"
+              maxlength="6"
+              autocomplete="off"
+            />
+            <span class="captcha-svg" title="点击刷新" @click="refreshCaptcha" v-html="captcha.svg"></span>
+          </div>
+        </a-form-item>
+
         <a-form-item>
           <a-button
             type="primary"
@@ -60,6 +73,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import { UserOutlined, LockOutlined } from '@ant-design/icons-vue';
 import { login } from '@/api/auth';
+import { getCaptcha } from '@/api/audit';
 import { useUserStore } from '@/stores/user';
 import { useSiteStore } from '@/api/site';
 import { buildFileUrl } from '@/api/taoFiles';
@@ -72,6 +86,7 @@ const siteStore = useSiteStore();
 // 登录页无令牌：站点参数走匿名接口拉取，接口不通时回退内置默认值
 onMounted(() => {
   if (!siteStore.loaded) void siteStore.fetchConfig();
+  void refreshCaptcha();
 });
 
 const loginLogoUrl = computed(() =>
@@ -80,10 +95,24 @@ const loginLogoUrl = computed(() =>
     : buildFileUrl(siteStore.config.siteLogo)
 );
 
+// 验证码：登录页进入时尝试拉取（后端开关关闭时不强求）；失败后带 captchaId/captchaCode 重试
+const captcha = reactive<{ captchaId: string; svg: string }>({ captchaId: '', svg: '' });
+async function refreshCaptcha() {
+  try {
+    const c = await getCaptcha();
+    captcha.captchaId = c.captchaId;
+    captcha.svg = c.svg;
+    form.captchaCode = '';
+  } catch {
+    captcha.svg = ''; // 后端不可达或未开验证码时静默，不挡登录
+  }
+}
+
 const loading = ref(false);
 const form = reactive({
   username: 'admin',
   password: '',
+  captchaCode: '',
 });
 
 const rules = {
@@ -97,7 +126,12 @@ const rules = {
 async function onLogin() {
   loading.value = true;
   try {
-    const result = await login({ username: form.username, password: form.password });
+    const result = await login({
+      username: form.username,
+      password: form.password,
+      captchaId: captcha.captchaId || undefined,
+      captchaCode: form.captchaCode || undefined,
+    });
     userStore.setTokenValue(result.token);
     // 拉取用户信息并生成动态路由
     await userStore.fetchUserInfo();
@@ -107,7 +141,8 @@ async function onLogin() {
     const redirect = (route.query.redirect as string) || '/dashboard';
     router.replace(redirect);
   } catch (e) {
-    // 错误提示已在 request.ts 统一处理
+    // 错误提示已在 request.ts 统一处理；失败后刷新验证码重试
+    await refreshCaptcha();
     console.error('[login] 登录失败', e);
   } finally {
     loading.value = false;
@@ -164,5 +199,24 @@ async function onLogin() {
   text-align: center;
   color: rgba(0, 0, 0, 0.45);
   font-size: 12px;
+}
+
+.captcha-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.captcha-svg {
+  display: inline-flex;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f5f5f5;
+
+  :deep(svg) {
+    height: 40px;
+    width: auto;
+  }
 }
 </style>

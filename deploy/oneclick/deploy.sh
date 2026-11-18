@@ -54,7 +54,13 @@ step 后端发布 publish_backend
 
 # —— 步骤 3: 前端构建 ——
 build_frontend() {
-  (cd "$FRONTEND_DIR" && npm ci --no-audit --no-fund && npm run build) || return 1
+  # NFS 环境下 node_modules 可能残留占用文件导致 npm ci 失败；已有可构建依赖时跳过重装
+  if (cd "$FRONTEND_DIR" && [ -d node_modules ] && ls node_modules/.bin/vite >/dev/null 2>&1); then
+    log "node_modules 已就绪，跳过 npm ci（避免 NFS 残留文件阻塞）"
+  else
+    (cd "$FRONTEND_DIR" && npm ci --no-audit --no-fund) || return 1
+  fi
+  (cd "$FRONTEND_DIR" && npm run build) || return 1
 }
 step 前端构建 build_frontend
 

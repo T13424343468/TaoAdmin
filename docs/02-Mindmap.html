@@ -79,7 +79,7 @@
 </head>
 <body>
   <h1>TaoAdmin 项目思维导图</h1>
-  <div class="sub">微服务权限框架 · .NET 8 + SqlSugar + MySQL + Ant Design Vue · 2026-10</div>
+  <div class="sub">微服务权限框架 · .NET 10 + SqlSugar + MySQL + Ant Design Vue · 2026-11（适用版本：2026-11-18 主干）</div>
 
   <div class="tree">
     <div class="root">TaoAdmin<small>微服务后台基础底座</small></div>
@@ -88,7 +88,8 @@
       <div class="branch">
         <div class="node c-auth">权限模型</div>
         <div class="children">
-          <div class="leaf">认证：账号密码登录 · JWT 令牌 · 刷新令牌</div>
+          <div class="leaf">认证：账号密码登录 · JWT 令牌 · 刷新令牌 · SVG 图形验证码（默认必填）</div>
+          <div class="leaf">登录防护：连错 5 次锁 15 分钟 · 判锁先于密码校验 · 成功即清零</div>
           <div class="leaf">用户管理：增删改查 · 启停 · 重置密码 · 分配角色</div>
           <div class="leaf">角色管理：角色 CRUD · 绑定菜单 · 绑定接口</div>
           <div class="leaf">菜单权限：目录/菜单/按钮三级 · 动态路由 · 显隐控制</div>
@@ -102,7 +103,7 @@
           <div class="leaf">MVVM：组合式 API · 响应式绑定</div>
           <div class="leaf">动态路由：登录后按菜单树生成</div>
           <div class="leaf">公用组件：FilterBar 筛选栏（一行 + 展开）</div>
-          <div class="leaf">页面：工作台 · 用户/角色/菜单/接口 · 任务 · 监控 · 日志</div>
+          <div class="leaf">页面：工作台 · 用户/角色/菜单/接口 · 任务 · 监控 · 日志 · 登录安全 · 审计日志 · 通知渠道</div>
           <div class="leaf">v-permission 指令：按钮级权限</div>
         </div>
       </div>
@@ -146,7 +147,29 @@
       </div>
 
       <div class="branch">
-        <div class="node c-infra">文件中心（独立解决方案）</div>
+        <div class="node c-auth">防护审计</div>
+        <div class="children">
+          <div class="leaf">验证码：SVG 输出 · 4 位去 0O1lI · 一次性消费 · 5 分钟有效 · 开关/阈值可配</div>
+          <div class="leaf">登录安全页：五项配置存 sys_site_config · 保存即生效不重启</div>
+          <div class="leaf">审计日志页：类别/账号/结果/时间筛选 · 管理操作自动留痕（AuditTrail）</div>
+          <div class="leaf">日志保留：默认 90 天（0=永久）· 手动清理返回删除数</div>
+          <div class="leaf">通知渠道页：SMTP/短信配置留存 · 发送通道占位（只埋不接线）</div>
+        </div>
+      </div>
+
+      <div class="branch">
+        <div class="node c-infra">文件中心（基础框架内置）</div>
+        <div class="children">
+          <div class="leaf">接口：/api/identity/files/** · 上传/分页/删除需 sys:file:manage · 下载登录即可（无令牌 401）</div>
+          <div class="leaf">上传：MD5 秒传去重（deduplicated）· 16 种扩展名白名单 · 5MB 上限</div>
+          <div class="leaf">下载：仅 /uploads 前缀路径 · 原文件名交付 · 记录不存在 404</div>
+          <div class="leaf">删除：软删 + 物理删 · 删后原路径 404</div>
+          <div class="leaf">存储切换：FileStorage:Provider = local（默认）/ minio（S3 兼容，数据不出内网）· 业务零改动</div>
+        </div>
+      </div>
+
+      <div class="branch">
+        <div class="node c-infra">文件中心（独立解决方案 TaoFiles）</div>
         <div class="children">
           <div class="leaf">独立部署：TaoFiles 单独运行，业务系统零耦合集成</div>
           <div class="leaf">上传：MD5 去重/秒传 · 扩展名白名单 · 大小限制 · 雪花 ID 重命名</div>

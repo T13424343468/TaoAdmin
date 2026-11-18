@@ -27,6 +27,7 @@
       :columns="columns"
       :loading="loading"
       :pagination="pagination"
+      :scroll="{ x: 730 }"
       row-key="id"
       size="middle"
       @change="onTableChange"

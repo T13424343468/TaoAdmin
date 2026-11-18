@@ -1,9 +1,11 @@
 ﻿import { request } from './request';
 
-/** 登录参数 */
+/** 登录参数（captchaId/captchaCode 为可选：安全设置要求验证码时必传） */
 export interface LoginParams {
   username: string;
   password: string;
+  captchaId?: string;
+  captchaCode?: string;
 }
 
 /** 用户信息（含菜单树与权限码） */

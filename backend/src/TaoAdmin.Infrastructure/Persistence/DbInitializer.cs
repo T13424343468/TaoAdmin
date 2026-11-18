@@ -19,7 +19,8 @@ public static class DbInitializer
     {
         db.CodeFirst.InitTables(typeof(SysUser), typeof(SysRole), typeof(SysMenu), typeof(SysUserRole), typeof(SysRoleMenu), typeof(SysRoleApi), typeof(SysApi),
             typeof(SysTenant), typeof(SysMessage), typeof(SysWorkflow), typeof(SysWorkflowInstance), typeof(SysWorkflowTask),
-            typeof(SysDictType), typeof(SysDictData), typeof(SysOperationLog), typeof(SysSiteConfig), typeof(SysAnnouncement));
+            typeof(SysDictType), typeof(SysDictData), typeof(SysOperationLog), typeof(SysSiteConfig), typeof(SysAnnouncement),
+            typeof(TaoAdmin.Domain.Entities.SysFile));
 
         if (db.Queryable<SysUser>().Count() == 0)
             SeedBase(db, snowflake);
@@ -37,6 +38,59 @@ public static class DbInitializer
         SeedTenantMenu(db, snowflake);
         SeedWorkflowMenu(db, snowflake);
         SeedMessageMenu(db, snowflake);
+        SeedAuditMenus(db, snowflake);
+    }
+
+    /// <summary>防护审计菜单与权限种子（幂等）：登录安全、审计日志、通知渠道（挂系统管理目录下）</summary>
+    private static void SeedAuditMenus(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var now = DateTime.Now;
+        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
+        if (sysDir == null) return;
+
+        var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+
+        // 登录安全
+        if (!db.Queryable<SysMenu>().Any(m => m.Component == "system/loginsecurity/index"))
+        {
+            var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "登录安全", MenuType = 1, Path = "/system/loginsecurity", Component = "system/loginsecurity/index", OrderNum = 11, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+            var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "登录安全保存", MenuType = 2, PermsCode = "sys:audit:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+            db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
+            if (adminRole != null)
+                db.Insertable(new List<SysRoleMenu>
+                {
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
+                }).ExecuteCommand();
+        }
+
+        // 审计日志
+        if (!db.Queryable<SysMenu>().Any(m => m.Component == "system/auditlog/index"))
+        {
+            var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "审计日志", MenuType = 1, Path = "/system/auditlog", Component = "system/auditlog/index", OrderNum = 12, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+            var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "审计日志管理", MenuType = 2, PermsCode = "sys:audit:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+            db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
+            if (adminRole != null)
+                db.Insertable(new List<SysRoleMenu>
+                {
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
+                }).ExecuteCommand();
+        }
+
+        // 通知渠道
+        if (!db.Queryable<SysMenu>().Any(m => m.Component == "system/notifychannel/index"))
+        {
+            var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "通知渠道", MenuType = 1, Path = "/system/notifychannel", Component = "system/notifychannel/index", OrderNum = 13, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+            var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "通知渠道保存", MenuType = 2, PermsCode = "sys:audit:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+            db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
+            if (adminRole != null)
+                db.Insertable(new List<SysRoleMenu>
+                {
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
+                }).ExecuteCommand();
+        }
     }
 
     /// <summary>站点参数菜单与权限种子（逐项幂等：已有数据不重复插入，兼容老库增量升级）</summary>

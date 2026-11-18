@@ -4,6 +4,7 @@ using TaoAdmin.Common.Cache;
 using TaoAdmin.Common.Http;
 using TaoAdmin.Common.Messaging;
 using TaoAdmin.Common.Snowflake;
+using TaoAdmin.Common.Storage;
 using TaoAdmin.Domain.Repositories;
 using TaoAdmin.IdentityService.Handlers;
 using TaoAdmin.Infrastructure.Persistence;
@@ -64,6 +65,7 @@ builder.Services.AddSingleton(_ => new SnowflakeIdGenerator(
 
 // ==================== JWT ====================
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<TaoAdmin.Common.Storage.FileStorageOptions>(builder.Configuration.GetSection("FileStorage"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<JwtOptions>>().Value);
 builder.Services.AddSingleton<JwtTokenService>();
 var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
@@ -111,6 +113,23 @@ builder.Services.AddScoped<OperationLogAppService>();
 builder.Services.AddScoped<SiteConfigAppService>();
 builder.Services.AddScoped<AnnouncementAppService>();
 builder.Services.AddScoped<UserExcelAppService>();
+// 防护审计：登录安全（验证码/锁定策略读取口）——AuthAppService 登录链依赖 ILoginSecurityProvider
+builder.Services.AddScoped<LoginSecurityAppService>();
+builder.Services.AddScoped<ILoginSecurityProvider>(sp => sp.GetRequiredService<LoginSecurityAppService>());
+builder.Services.AddSingleton<TaoAdmin.Common.Security.CaptchaService>();
+builder.Services.AddSingleton<TaoAdmin.Common.Auth.LoginLockoutStore>();
+builder.Services.AddSingleton<TaoAdmin.Application.Services.AuditCleanupService>();
+builder.Services.AddSingleton<TaoAdmin.Application.Services.AuditTrail>();
+builder.Services.AddScoped<NotifyChannelAppService>();
+// 文件中心：本地盘存储默认；经 FileStorage:Provider=minio 切 MinIO 对象存储（数据不出内网）
+builder.Services.AddScoped<FileAppService>();
+builder.Services.AddScoped<TaoAdmin.Common.Storage.IFileStorageProvider>(sp =>
+{
+    var cfg = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<FileStorageOptions>>().Value;
+    return cfg.Provider.Equals("minio", StringComparison.OrdinalIgnoreCase)
+        ? new MinioFileStorageProvider(cfg.Minio.Endpoint, cfg.Minio.AccessKey, cfg.Minio.SecretKey, cfg.Minio.Bucket)
+        : new LocalFileStorageProvider(cfg.Root, sp.GetRequiredService<SnowflakeIdGenerator>().NextId);
+});
 // 密码策略：应用服务本身即策略读取口（改密/建人/登录注入同一实现）
 builder.Services.AddScoped<PasswordPolicyAppService>();
 builder.Services.AddScoped<IPasswordPolicyProvider>(sp => sp.GetRequiredService<PasswordPolicyAppService>());
