@@ -2320,3 +2320,13 @@
 [21:16:57 INF] HTTP GET /health responded 200 in 0.4217 ms
 [21:16:57 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5001/health - 200 null application/json; charset=utf-8 0.7901ms
 setsid: failed to execute dotnet: No such file or directory
+Unhandled exception. System.Exception: SysUser 创建失败,请认真检查 1、属性需要get set 2、特殊类型需要加Ignore 具体错误内容： 中文提示 :  连接数据库过程中发生错误，检查服务器是否正常连接字符串是否正确，错误信息：Unable to connect to any of the specified MySQL hosts.DbType="MySql";ConfigId="".
+English Message : Connection open error . Unable to connect to any of the specified MySQL hosts.DbType="MySql";ConfigId="" 
+   at SqlSugar.CodeFirstProvider.InitTables(Type[] entityTypes)
+   at TaoAdmin.Infrastructure.Persistence.DbInitializer.Initialize(ISqlSugarClient db, SnowflakeIdGenerator snowflake) in /root/workspace/6ba46391-d241-4ac4-a098-8f7eaec431c5/TaoAdmin/backend/src/TaoAdmin.Infrastructure/Persistence/DbInitializer.cs:line 20
+   at Program.<Main>$(String[] args) in /root/workspace/6ba46391-d241-4ac4-a098-8f7eaec431c5/TaoAdmin/backend/src/TaoAdmin.IdentityService/Program.cs:line 188
+Unhandled exception. System.Exception: SysUser 创建失败,请认真检查 1、属性需要get set 2、特殊类型需要加Ignore 具体错误内容： 中文提示 :  连接数据库过程中发生错误，检查服务器是否正常连接字符串是否正确，错误信息：Unable to connect to any of the specified MySQL hosts.DbType="MySql";ConfigId="".
+English Message : Connection open error . Unable to connect to any of the specified MySQL hosts.DbType="MySql";ConfigId="" 
+   at SqlSugar.CodeFirstProvider.InitTables(Type[] entityTypes)
+   at TaoAdmin.Infrastructure.Persistence.DbInitializer.Initialize(ISqlSugarClient db, SnowflakeIdGenerator snowflake) in /root/workspace/6ba46391-d241-4ac4-a098-8f7eaec431c5/TaoAdmin/backend/src/TaoAdmin.Infrastructure/Persistence/DbInitializer.cs:line 20
+   at Program.<Main>$(String[] args) in /root/workspace/6ba46391-d241-4ac4-a098-8f7eaec431c5/TaoAdmin/backend/src/TaoAdmin.IdentityService/Program.cs:line 188

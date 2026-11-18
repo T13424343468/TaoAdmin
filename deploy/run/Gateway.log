@@ -100,3 +100,31 @@ Possible reasons for this include:
 [21:16:57 INF] HTTP GET /health responded 200 in 0.5116 ms
 [21:16:57 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5000/health - 200 null application/json; charset=utf-8 0.7813ms
 setsid: failed to execute dotnet: No such file or directory
+[22:28:51 INF] User profile is available. Using '/root/workspace/.aspnet/DataProtection-Keys' as key repository; keys will not be encrypted at rest.
+[22:28:51 INF] Loading proxy data from config.
+[22:28:51 INF] TaoAdmin.GatewayService 启动，端口 5000
+[22:28:51 INF] Now listening on: http://0.0.0.0:5000
+[22:28:51 INF] Application started. Press Ctrl+C to shut down.
+[22:28:51 INF] Hosting environment: Production
+[22:28:51 INF] Content root path: /root/workspace/6ba46391-d241-4ac4-a098-8f7eaec431c5/TaoAdmin/deploy/publish/backend/gateway
+[22:29:05 INF] Request starting HTTP/1.1 GET http://localhost:5000/health - null null
+[22:29:05 INF] Executing endpoint 'HTTP: GET /health'
+[22:29:05 INF] Setting HTTP status code 200.
+[22:29:05 INF] Writing value of type '<>f__AnonymousType1`2' as Json.
+[22:29:05 INF] Executed endpoint 'HTTP: GET /health'
+[22:29:05 INF] HTTP GET /health responded 200 in 74.4662 ms
+[22:29:05 INF] Request finished HTTP/1.1 GET http://localhost:5000/health - 200 null application/json; charset=utf-8 102.0953ms
+[22:29:24 INF] Request starting HTTP/1.1 GET http://localhost:5000/health - null null
+[22:29:24 INF] Executing endpoint 'HTTP: GET /health'
+[22:29:24 INF] Setting HTTP status code 200.
+[22:29:24 INF] Writing value of type '<>f__AnonymousType1`2' as Json.
+[22:29:24 INF] Executed endpoint 'HTTP: GET /health'
+[22:29:24 INF] HTTP GET /health responded 200 in 3.5023 ms
+[22:29:24 INF] Request finished HTTP/1.1 GET http://localhost:5000/health - 200 null application/json; charset=utf-8 4.8037ms
+[22:30:01 INF] Request starting HTTP/1.1 GET http://127.0.0.1:5000/health - null null
+[22:30:01 INF] Executing endpoint 'HTTP: GET /health'
+[22:30:01 INF] Setting HTTP status code 200.
+[22:30:01 INF] Writing value of type '<>f__AnonymousType1`2' as Json.
+[22:30:01 INF] Executed endpoint 'HTTP: GET /health'
+[22:30:01 INF] HTTP GET /health responded 200 in 2.4553 ms
+[22:30:01 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5000/health - 200 null application/json; charset=utf-8 3.0167ms
