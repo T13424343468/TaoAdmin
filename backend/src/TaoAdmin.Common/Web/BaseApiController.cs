@@ -24,6 +24,16 @@ public abstract class BaseApiController : ControllerBase
     /// <summary>失败返回</summary>
     protected ApiResult<T> ApiFail<T>(string message, int code = 400)
         => ApiResult<T>.Fail(message, code, HttpContext.TraceIdentifier);
+
+    /// <summary>客户端 IP（反代场景取 X-Forwarded-For 首段）</summary>
+    protected string Ip
+    {
+        get
+        {
+            var fwd = Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            return string.IsNullOrWhiteSpace(fwd) ? HttpContext.Connection.RemoteIpAddress?.ToString() ?? "" : fwd.Split(',')[0].Trim();
+        }
+    }
 }
 
 /// <summary>当前登录用户信息读取扩展</summary>

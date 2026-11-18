@@ -32,7 +32,7 @@ public class AuditController : BaseApiController
     public ApiResult<object> Captcha()
     {
         var (id, svg) = _captcha.Generate();
-        return ApiOk(new { captchaId = id, svg });
+        return ApiOk<object>(new { captchaId = id, svg });
     }
 
     /// <summary>读取登录安全设置与日志保留策略（未配置的键返回内置默认值）</summary>
@@ -60,7 +60,7 @@ public class AuditController : BaseApiController
         [FromQuery] int? success = null, [FromQuery] DateTime? begin = null, [FromQuery] DateTime? end = null)
     {
         var page = await _logs.PageAsync(pageIndex, pageSize, category, userName, success, begin, end);
-        return ApiOk(page);
+        return ApiOk<object>(page);
     }
 
     /// <summary>立即执行一轮日志清理（保留策略外的旧日志批量删除，返回删除数）</summary>
@@ -70,17 +70,7 @@ public class AuditController : BaseApiController
     {
         var settings = await _security.GetAsync();
         var deleted = await _cleanup.CleanupAsync(settings.LogRetentionDays);
-        return ApiOk(new { deleted });
-    }
-
-    /// <summary>客户端 IP（反代场景取 X-Forwarded-For 首段）</summary>
-    private string Ip
-    {
-        get
-        {
-            var fwd = Request.Headers["X-Forwarded-For"].FirstOrDefault();
-            return string.IsNullOrWhiteSpace(fwd) ? HttpContext.Connection.RemoteIpAddress?.ToString() ?? "" : fwd.Split(',')[0].Trim();
-        }
+        return ApiOk<object>(new { deleted });
     }
 }
 
@@ -102,7 +92,7 @@ public class NotifyChannelController : BaseApiController
     /// <summary>读取通知渠道配置（未配置项返回空串；口子只埋不接线）</summary>
     [HttpGet]
     [Permission("sys:audit:manage")]
-    public async Task<ApiResult<object>> Get() => ApiOk(await _channel.GetAsync());
+    public async Task<ApiResult<object>> Get() => ApiOk<object>(await _channel.GetAsync());
 
     /// <summary>保存通知渠道配置（整体覆盖；通道未接线，仅供配置留存；本操作自动留痕）</summary>
     [HttpPut]

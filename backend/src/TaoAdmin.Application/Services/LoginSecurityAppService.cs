@@ -3,6 +3,7 @@ using TaoAdmin.Domain.Entities;
 using TaoAdmin.Common.Snowflake;
 using Microsoft.Extensions.Caching.Memory;
 using SqlSugar;
+using static TaoAdmin.Application.Services.LoginSecurityKeys;
 
 namespace TaoAdmin.Application.Services;
 
@@ -42,21 +43,21 @@ public class LoginSecurityAppService(ISqlSugarClient db, SnowflakeIdGenerator sn
 
         var rows = await db.Queryable<SysSiteConfig>()
             .Where(c => c.IsDeleted == false && (
-                c.ConfigKey == Keys.MaxFails || c.ConfigKey == Keys.LockMinutes ||
-                c.ConfigKey == Keys.CaptchaRequired || c.ConfigKey == Keys.CaptchaAfterFails ||
-                c.ConfigKey == Keys.LogRetentionDays))
+                c.ConfigKey == LoginSecurityKeys.MaxFails || c.ConfigKey == LoginSecurityKeys.LockMinutes ||
+                c.ConfigKey == LoginSecurityKeys.CaptchaRequired || c.ConfigKey == LoginSecurityKeys.CaptchaAfterFails ||
+                c.ConfigKey == LoginSecurityKeys.LogRetentionDays))
             .ToListAsync();
         int IntOf(string key, int def)
             => rows.FirstOrDefault(r => r.ConfigKey == key)?.ConfigValue is { Length: > 0 } v
                 && int.TryParse(v, out var n) ? n : def;
 
-        var required = rows.FirstOrDefault(r => r.ConfigKey == Keys.CaptchaRequired)?.ConfigValue;
+        var required = rows.FirstOrDefault(r => r.ConfigKey == LoginSecurityKeys.CaptchaRequired)?.ConfigValue;
         var settings = new LoginSecuritySettings(
-            Math.Max(IntOf(Keys.MaxFails, DefaultMaxFails), 1),
-            Math.Max(IntOf(Keys.LockMinutes, DefaultLockMinutes), 1),
+            Math.Max(IntOf(LoginSecurityKeys.MaxFails, DefaultMaxFails), 1),
+            Math.Max(IntOf(LoginSecurityKeys.LockMinutes, DefaultLockMinutes), 1),
             required == null ? DefaultCaptchaRequired : required != "0",
-            IntOf(Keys.CaptchaAfterFails, DefaultCaptchaAfterFails),
-            Math.Max(IntOf(Keys.LogRetentionDays, DefaultLogRetentionDays), 0));
+            IntOf(LoginSecurityKeys.CaptchaAfterFails, DefaultCaptchaAfterFails),
+            Math.Max(IntOf(LoginSecurityKeys.LogRetentionDays, DefaultLogRetentionDays), 0));
         cache.Set(CacheKey, settings, CacheTtl);
         return settings;
     }
@@ -73,11 +74,11 @@ public class LoginSecurityAppService(ISqlSugarClient db, SnowflakeIdGenerator sn
         if (req.LogRetentionDays is < 0 or > 3650)
             throw new DomainException("日志保留天数须在 0~3650 之间（0 表示永久保留）", 400);
 
-        await UpsertAsync(Keys.MaxFails, req.LoginMaxFails.ToString(), "登录安全：连续失败锁定次数");
-        await UpsertAsync(Keys.LockMinutes, req.LoginLockMinutes.ToString(), "登录安全：锁定时长（分钟）");
-        await UpsertAsync(Keys.CaptchaRequired, req.LoginCaptchaRequired ? "1" : "0", "登录安全：验证码开关");
-        await UpsertAsync(Keys.CaptchaAfterFails, req.CaptchaAfterFails.ToString(), "登录安全：验证码触发阈值（0=每次都要）");
-        await UpsertAsync(Keys.LogRetentionDays, req.LogRetentionDays.ToString(), "日志保留天数（0=永久保留）");
+        await UpsertAsync(LoginSecurityKeys.MaxFails, req.LoginMaxFails.ToString(), "登录安全：连续失败锁定次数");
+        await UpsertAsync(LoginSecurityKeys.LockMinutes, req.LoginLockMinutes.ToString(), "登录安全：锁定时长（分钟）");
+        await UpsertAsync(LoginSecurityKeys.CaptchaRequired, req.LoginCaptchaRequired ? "1" : "0", "登录安全：验证码开关");
+        await UpsertAsync(LoginSecurityKeys.CaptchaAfterFails, req.CaptchaAfterFails.ToString(), "登录安全：验证码触发阈值（0=每次都要）");
+        await UpsertAsync(LoginSecurityKeys.LogRetentionDays, req.LogRetentionDays.ToString(), "日志保留天数（0=永久保留）");
 
         cache.Remove(CacheKey);
     }

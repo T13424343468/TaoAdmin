@@ -76,6 +76,6 @@ public class OperationLogController : BaseApiController
     [Permission("sys:log:query")]
     public async Task<ApiResult<PageResult<SysOperationLog>>> Page([FromQuery] int pageIndex = 1, [FromQuery] int pageSize = 10,
         [FromQuery] string? category = null, [FromQuery] string? userName = null,
-        [FromQuery] DateTime? begin = null, [FromQuery] DateTime? end = null)
-        => ApiOk(await _svc.PageAsync(pageIndex, pageSize, category, userName, begin, end));
+        [FromQuery] int? success = null, [FromQuery] DateTime? begin = null, [FromQuery] DateTime? end = null)
+        => ApiOk(await _svc.PageAsync(pageIndex, pageSize, category, userName, success, begin, end));
 }
