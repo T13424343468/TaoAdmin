@@ -128,3 +128,31 @@ setsid: failed to execute dotnet: No such file or directory
 [22:30:01 INF] Executed endpoint 'HTTP: GET /health'
 [22:30:01 INF] HTTP GET /health responded 200 in 2.4553 ms
 [22:30:01 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5000/health - 200 null application/json; charset=utf-8 3.0167ms
+[22:30:49 INF] Request starting HTTP/1.1 GET http://127.0.0.1:5000/health - null null
+[22:30:49 INF] Executing endpoint 'HTTP: GET /health'
+[22:30:49 INF] Setting HTTP status code 200.
+[22:30:49 INF] Writing value of type '<>f__AnonymousType1`2' as Json.
+[22:30:49 INF] Executed endpoint 'HTTP: GET /health'
+[22:30:49 INF] HTTP GET /health responded 200 in 0.4770 ms
+[22:30:49 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5000/health - 200 null application/json; charset=utf-8 0.9541ms
+[22:31:12 INF] Request starting HTTP/1.1 GET http://127.0.0.1:5000/health - null null
+[22:31:12 INF] Executing endpoint 'HTTP: GET /health'
+[22:31:12 INF] Setting HTTP status code 200.
+[22:31:12 INF] Writing value of type '<>f__AnonymousType1`2' as Json.
+[22:31:12 INF] Executed endpoint 'HTTP: GET /health'
+[22:31:12 INF] HTTP GET /health responded 200 in 0.4445 ms
+[22:31:12 INF] Request finished HTTP/1.1 GET http://127.0.0.1:5000/health - 200 null application/json; charset=utf-8 0.7519ms
+[22:31:15 INF] Request starting HTTP/1.1 POST http://localhost:5000/api/identity/auth/login - application/json 43
+[22:31:15 INF] Executing endpoint 'identity'
+[22:31:15 INF] Proxying to http://localhost:5001/auth/login HTTP/2 RequestVersionOrLower 
+[22:31:15 INF] Received HTTP/1.1 response 200.
+[22:31:15 INF] Executed endpoint 'identity'
+[22:31:15 INF] HTTP POST /api/identity/auth/login responded 200 in 481.4159 ms
+[22:31:15 INF] Request finished HTTP/1.1 POST http://localhost:5000/api/identity/auth/login - 200 null application/json; charset=utf-8 482.4988ms
+[22:31:15 INF] Request starting HTTP/1.1 GET http://localhost:5000/api/identity/announcements - null null
+[22:31:15 INF] Executing endpoint 'identity'
+[22:31:15 INF] Proxying to http://localhost:5001/announcements HTTP/2 RequestVersionOrLower 
+[22:31:15 INF] Received HTTP/1.1 response 200.
+[22:31:15 INF] Executed endpoint 'identity'
+[22:31:15 INF] HTTP GET /api/identity/announcements responded 200 in 105.0152 ms
+[22:31:15 INF] Request finished HTTP/1.1 GET http://localhost:5000/api/identity/announcements - 200 null application/json; charset=utf-8 106.3768ms

@@ -73,8 +73,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Init database (root socket)
+        run: |
+          sudo mariadb < deploy/sql/tao_admin_init.sql
+          touch /var/tmp/taoadmin-deploy.state
+          echo "数据库初始化" >> /var/tmp/taoadmin-deploy.state
       - name: One-click deploy on real machine
-        run: sudo -E bash deploy/oneclick/deploy.sh --force
+        run: bash deploy/oneclick/deploy.sh --force
       - name: Dump deploy log on failure
         if: failure()
         run: tail -60 /var/tmp/taoadmin-deploy.log
