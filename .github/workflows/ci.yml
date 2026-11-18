@@ -55,3 +55,31 @@ jobs:
       - name: Unit tests
         working-directory: frontend
         run: npx vitest run
+
+  real-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install real services (MariaDB + Redis)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server redis-server
+          sudo service mariadb start
+          sudo service redis-server start
+          sudo mariadb -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('Micro@2026') OR unix_socket; FLUSH PRIVILEGES;"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: One-click deploy on real machine
+        run: bash deploy/oneclick/deploy.sh --force
+      - name: Smoke (health + real login)
+        run: |
+          sleep 5
+          curl -sf http://127.0.0.1:5001/health || (echo Identity-unhealthy; sudo tail -40 deploy/run/Identity.log; exit 1)
+          curl -sf http://127.0.0.1:5000/health || (echo Gateway-unhealthy; sudo tail -40 deploy/run/Gateway.log; exit 1)
+          CODE=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://127.0.0.1:5000/api/identity/auth/login -H 'Content-Type: application/json' -d '{"username":"admin","password":"Admin@123"}')
+          echo "login_http=$CODE"; head -c 300 /tmp/login.json
+          test "$CODE" = 200
