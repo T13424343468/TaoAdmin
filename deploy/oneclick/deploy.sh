@@ -86,7 +86,15 @@ start_services() {
     sleep 0.2
     pgrep -f "${asm}.dll" | tail -1 >> "$RUN_DIR/${svc}.pid"
   done
-  sleep 3
+  # 冷启动可能含首次建库迁移，健康检查重试至多 60s
+  for i in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:5001/health >/dev/null 2>&1 && curl -sf http://127.0.0.1:5000/health >/dev/null 2>&1; then
+      log "双服务健康检查通过（第 ${i} 次尝试）"; return 0
+    fi
+    sleep 2
+  done
+  tail -20 "$RUN_DIR/Identity.log" >> "$LOG" 2>/dev/null || true
+  tail -20 "$RUN_DIR/Gateway.log" >> "$LOG" 2>/dev/null || true
   curl -sf http://127.0.0.1:5001/health || { echo "Identity 健康检查未过"; return 1; }
   curl -sf http://127.0.0.1:5000/health || { echo "Gateway 健康检查未过"; return 1; }
 }
