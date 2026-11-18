@@ -82,7 +82,9 @@ jobs:
         run: bash deploy/oneclick/deploy.sh --force
       - name: Dump deploy log on failure
         if: failure()
-        run: tail -60 /var/tmp/taoadmin-deploy.log
+        run: |
+          tail -40 /var/tmp/taoadmin-deploy.log || true
+          for f in deploy/run/*.log; do echo "===== $f ====="; tail -30 "$f" 2>/dev/null; done
       - name: Smoke (health + real login)
         run: |
           sleep 5
