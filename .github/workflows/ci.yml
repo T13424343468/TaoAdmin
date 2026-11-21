@@ -76,6 +76,8 @@ jobs:
       - name: Init database (root socket)
         run: |
           sudo mariadb < deploy/sql/tao_admin_init.sql
+          # CI 真机登录走账密直登：关闭每次验证码（默认开启），否则 smoke 与分页实测拿不到 token
+          sudo mariadb tao_admin -e "INSERT INTO sys_site_config (Id, ConfigKey, ConfigValue, Remark, CreatedAt, UpdatedAt, IsDeleted) VALUES (5280300000000000021, 'loginCaptchaRequired', '0', 'CI 环境关闭登录验证码', NOW(), NOW(), 0)"
           touch /var/tmp/taoadmin-deploy.state
           echo "数据库初始化" >> /var/tmp/taoadmin-deploy.state
       - name: Verify publish output
@@ -97,6 +99,8 @@ jobs:
           CODE=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://127.0.0.1:5000/api/identity/auth/login -H 'Content-Type: application/json' -d '{"username":"admin","password":"Admin@123"}')
           echo "login_http=$CODE"; head -c 300 /tmp/login.json
           test "$CODE" = 200
+          # 业务码也必须 200 且拿到 token（此前只验 HTTP 码，登录业务失败也放行=假绿）
+          python3 -c "import json;d=json.load(open('/tmp/login.json'));assert d['code']==200 and d['data'] and d['data']['token'],d;print('login business ok')"
 
       - name: Pagination real-machine verification (cursor + cache + indexes)
         run: |
