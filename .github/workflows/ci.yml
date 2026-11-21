@@ -100,7 +100,7 @@ jobs:
           echo "login_http=$CODE"; head -c 300 /tmp/login.json
           test "$CODE" = 200
           # 业务码也必须 200 且拿到 token（此前只验 HTTP 码，登录业务失败也放行=假绿）
-          python3 -c "import json;d=json.load(open('/tmp/login.json'));assert d['code']==200 and d['data'] and d['data']['token'],d;print('login business ok')"
+          python3 -c "import json;d=json.load(open('/tmp/login.json'));assert int(d['code'])==200 and d['data'] and d['data']['token'],d;print('login business ok')"
 
       - name: Pagination real-machine verification (cursor + cache + indexes)
         run: |
@@ -114,14 +114,14 @@ jobs:
           # 操作日志第 1 页：必须返回 nextCursor
           P1=$(curl -sf "http://127.0.0.1:5000/api/identity/operation-logs?pageIndex=1&pageSize=2" -H "Authorization: Bearer $TOKEN")
           echo "$P1" | head -c 200; echo
-          CURSOR=$(echo "$P1" | python3 -c "import sys,json;d=json.load(sys.stdin);assert d['code']==200;print(d['data'].get('nextCursor') or '')")
+          CURSOR=$(echo "$P1" | python3 -c "import sys,json;d=json.load(sys.stdin);assert int(d['code'])==200;print(d['data'].get('nextCursor') or '')")
           test -n "$CURSOR" && echo "nextCursor ok"
           # 带游标翻第 2 页：恒定速度路径必须走通
           curl -sf -G "http://127.0.0.1:5000/api/identity/operation-logs" --data-urlencode "pageIndex=2" --data-urlencode "pageSize=2" --data-urlencode "cursor=$CURSOR" -H "Authorization: Bearer $TOKEN" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);assert d['code']==200;print('cursor page2 ok, items=',len(d['data']['items']))"
+            | python3 -c "import sys,json;d=json.load(sys.stdin);assert int(d['code'])==200;print('cursor page2 ok, items=',len(d['data']['items']))"
           # 文件分页同口径（第 1 页 + nextCursor 字段存在性）
           curl -sf "http://127.0.0.1:5000/api/identity/files?pageIndex=1&pageSize=5" -H "Authorization: Bearer $TOKEN" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);assert d['code']==200 and 'nextCursor' in d['data'];print('files page1 ok')"
+            | python3 -c "import sys,json;d=json.load(sys.stdin);assert int(d['code'])==200 and 'nextCursor' in d['data'];print('files page1 ok')"
           # 索引真实落库核验
           sudo mariadb tao_admin -e "SHOW INDEX FROM sys_operation_log" | grep -q idx_oplog_created_id
           sudo mariadb tao_admin -e "SHOW INDEX FROM sys_file" | grep -q idx_file_created_id
