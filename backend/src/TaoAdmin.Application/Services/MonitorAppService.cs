@@ -112,14 +112,6 @@ public class MonitorAppService
         exception = parsed.Exception
     };
 
-    private static string ShortLevel(string raw) => raw switch
-    {
-        "DBG" or "DEBUG" or "Verbose" or "Debug" => "DEBUG",
-        "WRN" or "WARNING" or "Warning" => "WARN",
-        "ERR" or "ERROR" or "Fatal" or "FTL" => "ERROR",
-        _ => "INFO"
-    };
-
     private static async Task<bool> PingAsync(string url)
     {
         try

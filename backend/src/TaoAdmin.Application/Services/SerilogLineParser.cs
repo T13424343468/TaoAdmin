@@ -35,7 +35,7 @@ public static class SerilogLineParser
             string message;
             if (json.TryGetProperty("@m", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String)
             {
-                message = m.GetString() ?? string.Empty;
+                message = m.GetString()!;
             }
             else if (json.TryGetProperty("@mt", out var mt))
             {
@@ -62,7 +62,7 @@ public static class SerilogLineParser
             var name = match.Groups["name"].Value;
             return json.TryGetProperty(name, out var val)
                 ? val.ValueKind == System.Text.Json.JsonValueKind.String
-                    ? val.GetString() ?? string.Empty
+                    ? val.GetString()!
                     : val.ToString()
                 : match.Value;
         });
