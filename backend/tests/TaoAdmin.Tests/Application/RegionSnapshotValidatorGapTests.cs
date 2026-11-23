@@ -120,6 +120,15 @@ public class RegionSnapshotValidatorGapTests
     }
 
     [Fact]
+    public void Validate_CityCodeNotEnding00_Throws()
+    {
+        // 能红：地级码不以 00 结尾（如 110101）必须触发地级码尾规则第一分支
+        var snap = new RegionSnapshot { Nodes = [Node("110101", "假市", 2)] };
+        var ex = Assert.Throws<InvalidOperationException>(() => RegionSnapshotValidator.Validate(snap));
+        Assert.Contains("以 00 结尾且非省级码", ex.Message);
+    }
+
+    [Fact]
     public void Validate_ChildNotMatchingParentPrefix_Throws()
     {
         // 子级码前两位与父级不一致

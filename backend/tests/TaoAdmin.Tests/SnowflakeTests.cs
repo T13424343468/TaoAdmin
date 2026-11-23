@@ -40,4 +40,32 @@ public class SnowflakeTests
             Assert.True(ids.Add(b.NextId()));
         }
     }
+
+    [Fact]
+    public void NextId_ClockShiftBackwards_ShouldThrow()
+    {
+        // 能红：时钟回拨必须拒绝（若漏判会生成重复ID）
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var gen = new SnowflakeIdGenerator(1, 1);
+        gen.TimeSource = () => now;
+        gen.NextId(); // 记录 _lastTimestamp = now
+        gen.TimeSource = () => now - 5; // 模拟回拨 5 毫秒
+        var ex = Assert.Throws<InvalidOperationException>(() => gen.NextId());
+        Assert.Contains("时钟回拨", ex.Message);
+    }
+
+    [Fact]
+    public void NextId_ClockShiftForwards_ShouldRecover()
+    {
+        // 能红：回拨后时钟恢复到 >= lastTimestamp 必须能继续出号（若卡死则超时）
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var gen = new SnowflakeIdGenerator(1, 1);
+        gen.TimeSource = () => now;
+        gen.NextId();
+        gen.TimeSource = () => now - 5;
+        Assert.Throws<InvalidOperationException>(() => gen.NextId());
+        gen.TimeSource = () => now + 10; // 时钟恢复
+        var id = gen.NextId();
+        Assert.True(id > 0);
+    }
 }
