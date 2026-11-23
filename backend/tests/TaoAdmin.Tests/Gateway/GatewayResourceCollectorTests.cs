@@ -1,4 +1,5 @@
-﻿using TaoAdmin.GatewayService;
+﻿using System.Net.NetworkInformation;
+using TaoAdmin.GatewayService;
 using Xunit;
 
 namespace TaoAdmin.Tests.Gateway;
@@ -275,5 +276,103 @@ public class GatewayResourceCollectorTests
         Assert.Equal(0, snapshot.CpuPercent);
         Assert.Equal(0, snapshot.NetRxKBps);
         Assert.Equal(0, snapshot.NetTxKBps);
+    }
+
+    [Fact]
+    public void Collect_内存总量为0_百分比按0()
+    {
+        // 内存读数返回总量 0：百分比按 0 处理，不产生除零
+        var collector = new GatewayResourceCollector(
+            "taoadmin-gateway",
+            () => TimeSpan.Zero,
+            () => (0.0, 0.0),
+            () => (10.0, 100.0),
+            () => (0L, 0L));
+        var snapshot = collector.Collect();
+        Assert.Equal(0, snapshot.MemoryPercent);
+        Assert.Equal(0, snapshot.MemoryTotalMB);
+        Assert.Equal(10, snapshot.DiskPercent); // 其余项不受影响
+    }
+
+    [Fact]
+    public void Collect_磁盘总量为0_百分比按0()
+    {
+        // 磁盘读数返回总量 0：百分比按 0 处理，不产生除零
+        var collector = new GatewayResourceCollector(
+            "taoadmin-gateway",
+            () => TimeSpan.Zero,
+            () => (8192.0, 4096.0),
+            () => (0.0, 0.0),
+            () => (0L, 0L));
+        var snapshot = collector.Collect();
+        Assert.Equal(0, snapshot.DiskPercent);
+        Assert.Equal(0, snapshot.DiskTotalGB);
+        Assert.Equal(50, snapshot.MemoryPercent); // 其余项不受影响
+    }
+
+    [Fact]
+    public void ToDiskUsage_未就绪_返回0()
+    {
+        var (used, total) = GatewayResourceCollector.ToDiskUsage(isReady: false, 100, 50);
+        Assert.Equal(0, used);
+        Assert.Equal(0, total);
+    }
+
+    [Fact]
+    public void ToDiskUsage_总容量为0_返回0()
+    {
+        var (used, total) = GatewayResourceCollector.ToDiskUsage(isReady: true, 0, 0);
+        Assert.Equal(0, used);
+        Assert.Equal(0, total);
+    }
+
+    [Fact]
+    public void ToDiskUsage_正常读数_按字节换算GB()
+    {
+        // 2GB 总量、1GB 已用 → (1, 2)
+        var (used, total) = GatewayResourceCollector.ToDiskUsage(isReady: true, 2L * 1073741824, 1L * 1073741824);
+        Assert.Equal(1, used);
+        Assert.Equal(2, total);
+    }
+
+    [Fact]
+    public void ReadDisk_真实环境_总量大于0()
+    {
+        var (used, total) = GatewayResourceCollector.ReadDisk();
+        Assert.True(total > 0);
+        Assert.True(used > 0);
+        Assert.True(used < total);
+    }
+
+    [Fact]
+    public void ReadDisk_显式指定根路径_与真实环境一致()
+    {
+        var (used, total) = GatewayResourceCollector.ReadDisk("/");
+        Assert.True(total > 0);
+        Assert.True(used >= 0);
+    }
+
+    [Fact]
+    public void SumNicCounters_回环排除_合计收发()
+    {
+        var (rx, tx) = GatewayResourceCollector.SumNicCounters(
+        [
+            (NetworkInterfaceType.Loopback, 999L, 999L), // 回环排除
+            (NetworkInterfaceType.Ethernet, 100L, 200L),
+            (NetworkInterfaceType.Wireless80211, 10L, 20L),
+        ]);
+        Assert.Equal(110, rx);
+        Assert.Equal(220, tx);
+    }
+
+    [Fact]
+    public void SumNicCounters_全部回环_返回0()
+    {
+        var (rx, tx) = GatewayResourceCollector.SumNicCounters(
+        [
+            (NetworkInterfaceType.Loopback, 1L, 2L),
+        ]);
+        Assert.Equal(0, rx);
+        Assert.Equal(0, tx);
     }
 }

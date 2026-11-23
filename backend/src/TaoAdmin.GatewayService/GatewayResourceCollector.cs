@@ -143,15 +143,20 @@ public class GatewayResourceCollector
         }
     }
 
-    /// <summary>程序所在磁盘用量（GB）：根目录所在盘；读不到返回 (0, 0)。</summary>
-    internal static (double Used, double Total) ReadDisk()
+    /// <summary>程序所在磁盘用量（GB）：根目录所在盘；盘未就绪或总容量为 0 返回 (0, 0)。</summary>
+    internal static (double Used, double Total) ReadDisk(string? root = null)
     {
-        var root = Path.GetPathRoot(AppContext.BaseDirectory) ?? "/";
+        // AppContext.BaseDirectory 恒为合法路径，GetPathRoot 不会返回 null（探针实测）
+        root ??= Path.GetPathRoot(AppContext.BaseDirectory)!;
         var drive = new DriveInfo(root);
-        if (!drive.IsReady || drive.TotalSize == 0)
-            return (0, 0);
-        return ((drive.TotalSize - drive.AvailableFreeSpace) / 1073741824.0, drive.TotalSize / 1073741824.0);
+        return ToDiskUsage(drive.IsReady, drive.TotalSize, drive.AvailableFreeSpace);
     }
+
+    /// <summary>磁盘用量纯计算：未就绪或总容量为 0 按 (0, 0) 处理（Windows 可移除盘符，Linux 恒就绪）。</summary>
+    internal static (double Used, double Total) ToDiskUsage(bool isReady, long totalBytes, long freeBytes)
+        => !isReady || totalBytes == 0
+            ? (0, 0)
+            : ((totalBytes - freeBytes) / 1073741824.0, totalBytes / 1073741824.0);
 
     /// <summary>系统内存（MB）：Linux 读 /proc/meminfo 的 MemTotal/MemAvailable；读不到回退 GC 概览。</summary>
     internal static (double TotalMB, double AvailableMB) ReadSystemMemory(string? path = null)
@@ -207,17 +212,28 @@ public class GatewayResourceCollector
             return (rx, tx);
         }
 
-        long fallbackRx = 0, fallbackTx = 0;
-        if (!NetworkInterface.GetIsNetworkAvailable())
-            return (0, 0);
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        // 无 /proc/net/dev（非 Linux）：枚举网卡合计。不按「网络是否可用」短路——
+        // 未连接网卡的既有计数仍是真实流量，枚举+回环过滤对无网卡环境同样得 (0, 0)。
+        return SumNicCounters(NetworkInterface.GetAllNetworkInterfaces().Select(ToNicCounters));
+    }
+
+    private static (NetworkInterfaceType Type, long Rx, long Tx) ToNicCounters(NetworkInterface nic)
+    {
+        var stats = nic.GetIPStatistics();
+        return (nic.NetworkInterfaceType, stats.BytesReceived, stats.BytesSent);
+    }
+
+    /// <summary>网卡计数合计：回环网卡排除。</summary>
+    internal static (long Rx, long Tx) SumNicCounters(IEnumerable<(NetworkInterfaceType Type, long Rx, long Tx)> nics)
+    {
+        long rx = 0, tx = 0;
+        foreach (var (type, nicRx, nicTx) in nics)
         {
-            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+            if (type == NetworkInterfaceType.Loopback)
                 continue;
-            var stats = nic.GetIPStatistics();
-            fallbackRx += stats.BytesReceived;
-            fallbackTx += stats.BytesSent;
+            rx += nicRx;
+            tx += nicTx;
         }
-        return (fallbackRx, fallbackTx);
+        return (rx, tx);
     }
 }

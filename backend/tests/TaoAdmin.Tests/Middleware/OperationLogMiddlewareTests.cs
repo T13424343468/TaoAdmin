@@ -19,24 +19,36 @@ namespace TaoAdmin.Tests.Middleware;
 /// 操作日志中间件（审计落库全分支）：
 /// 登录预读三种 userName 形态与坏 JSON 容错、GET 不记、401 不记、
 /// 已登录/匿名/登录三类身份取值、Success 四条件、路径与查询串截断、
-/// IP 空值兜底、审计异常不破坏请求并告警。落库断言走 SQLite 内存库真实写入。
+/// IP 空值兜底、审计异常不破坏请求并告警。落库断言走 SQLite 临时文件库真实写入。
 /// </summary>
-public class OperationLogMiddlewareTests
+public class OperationLogMiddlewareTests : IDisposable
 {
-    private static (SqlSugarClient Db, ServiceProvider Sp) CreateDbAndProvider()
+    // 临时文件库 + 每 scope 独立客户端 + 自动关连接：
+    // Task.Run 会继承 AsyncLocal 上下文，后台落库与测试轮询若共用客户端实例
+    // （SqlSugarClient 非线程安全）会互踩连接；各自独立客户端指向同一文件库即无共享状态
+    private readonly string _dbPath = Path.Combine(Path.GetTempPath(), "oplog-" + Guid.NewGuid().ToString("N") + ".db");
+
+    private SqlSugarClient CreateClient() => new(new ConnectionConfig
     {
-        var db = new SqlSugarClient(new ConnectionConfig
-        {
-            ConnectionString = "DataSource=:memory:",
-            DbType = SqlSugar.DbType.Sqlite,
-            IsAutoCloseConnection = false
-        });
-        db.CodeFirst.InitTables<SysOperationLog>();
+        ConnectionString = $"DataSource={_dbPath}",
+        DbType = SqlSugar.DbType.Sqlite,
+        IsAutoCloseConnection = true
+    });
+
+    private (SqlSugarClient Db, ServiceProvider Sp) CreateDbAndProvider()
+    {
+        var pollingDb = CreateClient();
+        pollingDb.CodeFirst.InitTables<SysOperationLog>();
 
         var services = new ServiceCollection();
-        services.AddSingleton<ISqlSugarClient>(db);
+        services.AddScoped<ISqlSugarClient>(_ => CreateClient());
         services.AddSingleton(new SnowflakeIdGenerator(1, 1));
-        return (db, services.BuildServiceProvider());
+        return (pollingDb, services.BuildServiceProvider());
+    }
+
+    public void Dispose()
+    {
+        try { File.Delete(_dbPath); } catch { /* 清理失败不影响测试结论 */ }
     }
 
     private static OperationLogMiddleware CreateMiddleware(
@@ -46,7 +58,8 @@ public class OperationLogMiddlewareTests
     /// <summary>轮询等待后台落库任务完成（Task.Run 异步，最多等 5 秒）。</summary>
     private static async Task<SysOperationLog> WaitForRowAsync(ISqlSugarClient db)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(15);
+        // 全量并发下线程池饥饿可拖慢 Task.Run 调度（正常路径百毫秒内落库，超时只在真异常时触发）
+        var deadline = DateTime.UtcNow.AddSeconds(60);
         while (DateTime.UtcNow < deadline)
         {
             var rows = await db.Queryable<SysOperationLog>().ToListAsync();
