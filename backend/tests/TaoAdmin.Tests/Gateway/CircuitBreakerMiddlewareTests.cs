@@ -58,9 +58,10 @@ public class CircuitBreakerMiddlewareTests
     public async Task GetCircuitName_ShortPath_ShouldFallbackToPath()
     {
         // 能红：路径段不足 2 段必须回退原路径（若越界会 IndexOutOfRange）
+        // 注意：必须以 /api/ 开头才能进 GetCircuitName（非 /api/ 路径在前面就被跳过）
         var mw = new CircuitBreakerMiddleware(_ => Task.CompletedTask, Config(), NullLogger<CircuitBreakerMiddleware>.Instance);
         var ctx = new DefaultHttpContext();
-        ctx.Request.Path = "/health";
+        ctx.Request.Path = "/api/";
         await mw.InvokeAsync(ctx);
         Assert.Equal(200, ctx.Response.StatusCode);
     }

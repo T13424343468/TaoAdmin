@@ -155,6 +155,31 @@ public class GatewayResourceCollectorTests
     }
 
     [Fact]
+    public void ReadNetworkCounters_无冒号的行_跳过不抛出()
+    {
+        // 能红：不含冒号的行（sep<=0）必须跳过（若漏判会越界或误计）
+        var path = Path.Combine(Path.GetTempPath(), "gw-netdev-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllLines(path,
+            [
+                "header1",
+                "header2",
+                "no-colon-line",       // 无冒号，跳过
+                ":leading-colon",      // 冒号在首位（sep=0），跳过
+                "eth0: 100 10 0 0 0 0 0 0 200 20 0 0 0 0 0 0"
+            ]);
+            var (rx, tx) = GatewayResourceCollector.ReadNetworkCounters(path);
+            Assert.Equal(100, rx);
+            Assert.Equal(200, tx);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void ReadSystemMemory_MemTotal行无数值_按0处理()
     {
         var path = Path.Combine(Path.GetTempPath(), "gw-meminfo-" + Guid.NewGuid().ToString("N"));

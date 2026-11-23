@@ -239,6 +239,24 @@ public class RedisLoginLockoutStoreTests
     }
 
     [Fact]
+    public void Reset_Redis异常_带日志_记录警告不抛出()
+    {
+        // 能红：Redis 异常且注入了日志器时，Reset 必须走警告分支且不抛出（若漏判会中断清账）
+        var store = new RedisLoginLockoutStore(
+            new BrokenRedis(), Microsoft.Extensions.Logging.Abstractions.NullLogger<RedisLoginLockoutStore>.Instance);
+        store.Reset();
+    }
+
+    [Fact]
+    public void GetRemainingLockMinutes_Redis异常_带日志_降级返回Null()
+    {
+        // 能红：Redis 异常且注入了日志器时，读取锁定状态必须走警告降级返回 null（fail-open 口径）
+        var store = new RedisLoginLockoutStore(
+            new BrokenRedis(), Microsoft.Extensions.Logging.Abstractions.NullLogger<RedisLoginLockoutStore>.Instance);
+        Assert.Null(store.GetRemainingLockMinutes("alice", lockMinutes: 15));
+    }
+
+    [Fact]
     public void GetRemainingLockMinutes_Ttl为负或零_ReturnNull()
     {
         // 能红：TTL 非正（已过期瞬间）必须视为未锁定返回 null（若漏判 Ticks 判断会误锁）

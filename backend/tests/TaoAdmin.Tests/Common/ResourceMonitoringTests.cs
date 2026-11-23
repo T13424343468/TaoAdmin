@@ -110,6 +110,18 @@ public class ResourceCollectorTests
     }
 
     [Fact]
+    public void Collect_磁盘总量未知_百分比为0()
+    {
+        // 能红：磁盘总量未知（DiskTotalGB=0）时百分比必须为 0（若漏判会除零或 NaN）
+        var at = new DateTime(2026, 1, 1, 12, 0, 0);
+        var collector = new ResourceCollector("taoadmin-test", new FakeSource(
+            Counters(at, TimeSpan.FromSeconds(10), diskUsedGB: 0, diskTotalGB: 0)));
+        var snapshot = collector.Collect();
+        Assert.Equal(0, snapshot.DiskPercent);
+        Assert.Equal(0, snapshot.DiskTotalGB);
+    }
+
+    [Fact]
     public void Collect_并发采集_不抛异常且状态一致()
     {
         var at = new DateTime(2026, 1, 1, 12, 0, 0);
@@ -208,6 +220,30 @@ public class ProcessResourceSourceTests
         var (rx, tx) = ProcessResourceSource.ReadNetwork();
         Assert.True(rx >= 0);
         Assert.True(tx >= 0);
+    }
+
+    [Fact]
+    public void SumNicCounters_仅合计Up的非回环网卡()
+    {
+        // 能红：回环与未启用网卡必须排除、Up 的非回环网卡必须合计（若漏判会误计或漏计）
+        var (rx, tx) = ProcessResourceSource.SumNicCounters(
+        [
+            (Up: false, Type: System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, Rx: 1000, Tx: 2000), // 未启用，排除
+            (Up: true, Type: System.Net.NetworkInformation.NetworkInterfaceType.Loopback, Rx: 5000, Tx: 6000),  // 回环，排除
+            (Up: true, Type: System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, Rx: 100, Tx: 200),
+            (Up: true, Type: System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211, Rx: 10, Tx: 20)
+        ]);
+        Assert.Equal(110, rx);
+        Assert.Equal(220, tx);
+    }
+
+    [Fact]
+    public void SumNicCounters_空网卡列表_返回零()
+    {
+        // 能红：无网卡环境必须得 (0, 0)（若漏判会 NullReference）
+        var (rx, tx) = ProcessResourceSource.SumNicCounters([]);
+        Assert.Equal(0, rx);
+        Assert.Equal(0, tx);
     }
 
     [Fact]

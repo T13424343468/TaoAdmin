@@ -95,16 +95,24 @@ public class ProcessResourceSource : IResourceSource
 
     /// <summary>非回环网卡收发字节合计：无可用网卡返回 (0, 0)。</summary>
     internal static (long Rx, long Tx) ReadNetwork()
+        => SumNicCounters(NetworkInterface.GetAllNetworkInterfaces().Select(ToNicCounters));
+
+    private static (bool Up, NetworkInterfaceType Type, long Rx, long Tx) ToNicCounters(NetworkInterface nic)
     {
-        var interfaces = NetworkInterface.GetAllNetworkInterfaces();
+        var stats = nic.GetIPv4Statistics();
+        return (nic.OperationalStatus == OperationalStatus.Up, nic.NetworkInterfaceType, stats.BytesReceived, stats.BytesSent);
+    }
+
+    /// <summary>网卡计数合计：仅统计已启用（Up）的非回环网卡。</summary>
+    internal static (long Rx, long Tx) SumNicCounters(IEnumerable<(bool Up, NetworkInterfaceType Type, long Rx, long Tx)> nics)
+    {
         long rx = 0, tx = 0;
-        foreach (var nic in interfaces)
+        foreach (var (up, type, nicRx, nicTx) in nics)
         {
-            if (nic.OperationalStatus != OperationalStatus.Up || nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+            if (!up || type == NetworkInterfaceType.Loopback)
                 continue;
-            var stats = nic.GetIPv4Statistics();
-            rx += stats.BytesReceived;
-            tx += stats.BytesSent;
+            rx += nicRx;
+            tx += nicTx;
         }
         return (rx, tx);
     }
