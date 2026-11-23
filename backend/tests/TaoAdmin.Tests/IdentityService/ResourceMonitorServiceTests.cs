@@ -179,7 +179,7 @@ public class ResourceMonitorServiceTests
 
         using var cts = new CancellationTokenSource();
         await svc.StartAsync(cts.Token);
-        var finished = await Task.WhenAny(svc.ExecuteTask, Task.Delay(8000));
+        var finished = await Task.WhenAny(svc.ExecuteTask!, Task.Delay(8000));
 
         Assert.Same(svc.ExecuteTask, finished); // 循环已退出而非挂死
         Assert.Empty(publisher.Events);
