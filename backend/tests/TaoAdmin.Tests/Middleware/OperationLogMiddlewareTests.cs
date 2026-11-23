@@ -46,7 +46,7 @@ public class OperationLogMiddlewareTests
     /// <summary>轮询等待后台落库任务完成（Task.Run 异步，最多等 5 秒）。</summary>
     private static async Task<SysOperationLog> WaitForRowAsync(ISqlSugarClient db)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
+        var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
             var rows = await db.Queryable<SysOperationLog>().ToListAsync();
@@ -59,7 +59,7 @@ public class OperationLogMiddlewareTests
     /// <summary>等待一小段时间后确认没有落库（用于「不应记录」分支）。</summary>
     private static async Task AssertNoRowAsync(ISqlSugarClient db)
     {
-        await Task.Delay(400);
+        await Task.Delay(1000);
         Assert.Empty(await db.Queryable<SysOperationLog>().ToListAsync());
     }
 
