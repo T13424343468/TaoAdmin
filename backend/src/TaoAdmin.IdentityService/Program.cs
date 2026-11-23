@@ -267,3 +267,6 @@ using (var scope = app.Services.CreateScope())
 
 Log.Logger.Information("TaoAdmin.IdentityService 启动，端口 {Port}", builder.Configuration.GetValue<int>("Port", 5001));
 app.Run();
+
+/// <summary>探针定位标记：三个服务程序集的 Program 同名，测试用本类型唯一指定 IdentityService 程序集。</summary>
+public sealed class IdentityServiceProbe { }
