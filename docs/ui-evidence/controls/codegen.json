@@ -1,0 +1,56 @@
+{
+  "page": "codegen",
+  "route": "/system/codegen",
+  "controlCount": 7,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "查 询",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "新建表设计",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "搜索表名/中文名",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

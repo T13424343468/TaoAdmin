@@ -1,0 +1,103 @@
+{
+  "page": "file",
+  "route": "/file",
+  "controlCount": 14,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "上传文件",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "文件中心地址",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "按文件名搜索",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "开始日期",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "结束日期",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": true,
+      "checked": false
+    },
+    {
+      "kind": "select",
+      "text": "全部类型",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": true,
+      "checked": false
+    }
+  ]
+}

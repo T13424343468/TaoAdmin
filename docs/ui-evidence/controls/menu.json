@@ -1,0 +1,469 @@
+{
+  "page": "menu",
+  "route": "/system/menu",
+  "controlCount": 66,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "新增菜单",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "折叠全部",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "关闭行",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

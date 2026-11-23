@@ -1,0 +1,96 @@
+{
+  "page": "loginsecurity",
+  "route": "/system/loginsecurity",
+  "controlCount": 13,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "开\n关",
+      "placeholder": null,
+      "disabled": false,
+      "checked": true
+    },
+    {
+      "kind": "button",
+      "text": "开\n关",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "保 存",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "5",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "15",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "0",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "90",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "switch",
+      "text": "开\n关",
+      "disabled": false,
+      "checked": true
+    },
+    {
+      "kind": "switch",
+      "text": "开\n关",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "page": "notifychannel",
+  "route": "/system/notifychannel",
+  "controlCount": 15,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "保 存",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "发送测试消息（邮件）",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "发送测试消息（钉钉）",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "新增规则",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "如 smtp.example.com",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "465 走隐式 TLS",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "如 noreply@example.com",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "如 admin@example.com,ops@example.com",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "oapi.dingtalk.com/robot/send?access_token=...",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

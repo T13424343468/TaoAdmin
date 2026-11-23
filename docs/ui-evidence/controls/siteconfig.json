@@ -1,0 +1,70 @@
+{
+  "page": "siteconfig",
+  "route": "/system/siteconfig",
+  "controlCount": 9,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "上传 Logo",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "保 存",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "重 置",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "TaoAdmin",
+      "placeholder": "如：TaoAdmin",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "TaoAdmin",
+      "placeholder": "如：TaoAdmin ©2026",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}
