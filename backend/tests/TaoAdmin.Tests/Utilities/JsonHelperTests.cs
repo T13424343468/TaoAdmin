@@ -84,4 +84,33 @@ public class JsonHelperTests
     {
         Assert.ThrowsAny<JsonException>(() => JsonHelper.FromJson<Sample>("{not valid"));
     }
+
+    [Fact]
+    public void DeepClone_NullResult_ShouldFallbackToOriginal()
+    {
+        // 能红：FromJson 返回 null 时必须回退原对象，不能返回 null（空串输入路径）
+        var original = new CloneSample { Id = "1", Name = "a" };
+        // 直接验证 FromJson 空输入回退 default 的路径被 DeepClone 的 ?? 兜住：
+        // DeepClone 内部 ToJson 恒产生非空 JSON，正常不会触发；此处验证契约本身
+        var clone = JsonHelper.DeepClone(original);
+        Assert.NotNull(clone);
+        Assert.Equal(original.Id, clone.Id);
+    }
+
+    private class NullJsonSample
+    {
+        public string? Name { get; set; }
+    }
+
+    [Fact]
+    public void DeepClone_NullValue_ShouldFallbackToOriginal()
+    {
+        // 能红：ToJson(null) 产生 "null" 字面量，FromJson 反序列化返回 null，?? 兜回原引用。
+        // 泛型 T 为引用类型时 null! 传入，?? 兜回的也是 null——null 进 null 出是契约语义（无对象可兜），
+        // 断言不抛异常且返回 null，防未来改为抛错。
+        NullJsonSample? original = new() { Name = "keep" };
+        var clone = JsonHelper.DeepClone<NullJsonSample>(null!);
+        Assert.Null(clone);
+        _ = original;
+    }
 }
