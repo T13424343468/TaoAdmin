@@ -150,7 +150,10 @@ public class ServiceHealthMonitorServiceTests
         await monitor.StartAsync(cts.Token);
         try
         {
-            await Task.Delay(600); // 覆盖插桩下留足余量
+            // 轮询等待周期执行（全量并发下后台循环可能被饿死，固定延时易抖动）
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (email.Calls < 2 && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
             Assert.True(email.Calls >= 2, $"巡检应周期执行，实际 {email.Calls} 次");
         }
         finally
