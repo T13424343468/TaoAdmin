@@ -227,4 +227,24 @@ public class RedisLoginLockoutStoreTests
         var store = new RedisLoginLockoutStore(new BrokenRedis());
         store.Reset();
     }
+
+    [Fact]
+    public void Reset_无账目_空扫描不抛出()
+    {
+        // 能红：空账扫描（ScanKeys 返回空集）必须正常完成（若漏判 foreach 会误判）
+        var db = new FakeRedis();
+        var store = Create(db);
+        store.Reset(); // 空账 Reset
+        Assert.Empty(db.Store);
+    }
+
+    [Fact]
+    public void GetRemainingLockMinutes_Ttl为负或零_ReturnNull()
+    {
+        // 能红：TTL 非正（已过期瞬间）必须视为未锁定返回 null（若漏判 Ticks 判断会误锁）
+        var db = new FakeRedis();
+        db.Store["login:lock:until:carol"] = ("1", DateTime.UtcNow.AddSeconds(-1)); // 已过期
+        var store = Create(db);
+        Assert.Null(store.GetRemainingLockMinutes("carol", 15));
+    }
 }

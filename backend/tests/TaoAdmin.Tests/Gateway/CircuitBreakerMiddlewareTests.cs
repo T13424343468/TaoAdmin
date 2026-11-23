@@ -43,6 +43,29 @@ public class CircuitBreakerMiddlewareTests
     }
 
     [Fact]
+    public async Task MissingConfigSection_ShouldUseDefaults()
+    {
+        // 能红：配置节缺失必须回退默认选项（若漏判 ?? 会 NullReference）
+        var mw = new CircuitBreakerMiddleware(_ => Task.CompletedTask,
+            new ConfigurationBuilder().Build(), NullLogger<CircuitBreakerMiddleware>.Instance);
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/api/identity/users";
+        await mw.InvokeAsync(ctx);
+        Assert.Equal(200, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCircuitName_ShortPath_ShouldFallbackToPath()
+    {
+        // 能红：路径段不足 2 段必须回退原路径（若越界会 IndexOutOfRange）
+        var mw = new CircuitBreakerMiddleware(_ => Task.CompletedTask, Config(), NullLogger<CircuitBreakerMiddleware>.Instance);
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/health";
+        await mw.InvokeAsync(ctx);
+        Assert.Equal(200, ctx.Response.StatusCode);
+    }
+
+    [Fact]
     public async Task Disabled_ShouldAlwaysPassThrough()
     {
         var downstream = new Downstream { Healthy = false };

@@ -209,6 +209,31 @@ public class ProcessResourceSourceTests
         Assert.True(rx >= 0);
         Assert.True(tx >= 0);
     }
+
+    [Fact]
+    public void ReadSystemMemoryTotal_MemTotal行格式异常_返回0()
+    {
+        // 能红：MemTotal 行拆分后不足 2 段或数值坏必须回退 0（若漏判会 IndexOutOfRange）
+        var path = Path.Combine(Path.GetTempPath(), "tao-meminfo-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllLines(path, ["MemTotal:"]);
+            Assert.Equal(0, ProcessResourceSource.ReadSystemMemoryTotal(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ReadDisk_未就绪磁盘_返回零元组()
+    {
+        // 能红：磁盘未就绪或总量为 0 必须返回 (0,0)（若漏判会除零或假数据）
+        var (used, total) = ProcessResourceSource.ReadDisk("/dev/null");
+        Assert.Equal(0, total);
+        Assert.Equal(0, used);
+    }
 }
 
 /// <summary>资源采样历史环形缓冲：容量淘汰、最新查询、时间过滤、容量校验。</summary>
