@@ -25,7 +25,8 @@ public class ApiAuthMiddleware
         // 只对已认证的非匿名请求做接口级校验
         if (!anonymous && context.User.Identity is { IsAuthenticated: true })
         {
-            var (path, method) = (context.Request.Path.Value ?? "/", context.Request.Method.ToUpperInvariant());
+            // 探针实测：DefaultHttpContext 的 Path.Value 恒非 null（空路径返回空串）
+            var (path, method) = (context.Request.Path.Value!, context.Request.Method.ToUpperInvariant());
             var api = db.Queryable<SysApi>()
                 .First(a => a.Path == path && a.HttpMethod == method && a.Status == 1 && a.IsDeleted == false);
             if (api != null && !PermissionAuthorizationHandler.HasApiPermission(context.User, api.PermsCode))
