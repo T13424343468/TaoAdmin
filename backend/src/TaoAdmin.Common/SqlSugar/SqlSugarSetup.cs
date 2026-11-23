@@ -27,10 +27,14 @@ public static class SqlSugarSetup
             var connStr = configuration.GetConnectionString("MySql")
                           ?? "server=localhost;port=3306;database=taoadmin;uid=root;pwd=123456;charset=utf8mb4;SslMode=none;";
 
+            // 数据库类型可配置（Database:Provider）：默认 MySQL；SQLite 供测试/单机轻量场景
+            var provider = configuration.GetValue<string>("Database:Provider") ?? "MySql";
             var config = new ConnectionConfig
             {
                 ConnectionString = connStr,
-                DbType = SqlSugar.DbType.MySql,
+                DbType = provider.Equals("SQLite", StringComparison.OrdinalIgnoreCase)
+                    ? SqlSugar.DbType.Sqlite
+                    : SqlSugar.DbType.MySql,
                 IsAutoCloseConnection = true,     // 自动释放连接
                 InitKeyType = InitKeyType.Attribute // 按特性（SugarColumn）映射主键
             };
