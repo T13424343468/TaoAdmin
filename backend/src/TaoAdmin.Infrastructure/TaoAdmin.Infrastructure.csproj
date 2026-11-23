@@ -26,4 +26,7 @@
     <ProjectReference Include="..\TaoAdmin.Domain\TaoAdmin.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="TaoAdmin.Tests" />
+  </ItemGroup>
 </Project>
