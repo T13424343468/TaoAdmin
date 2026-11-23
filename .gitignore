@@ -26,3 +26,4 @@ deploy/k8s/secret.yaml
 # ===== 其他 =====
 logs/
 *.log
+.nfs*
