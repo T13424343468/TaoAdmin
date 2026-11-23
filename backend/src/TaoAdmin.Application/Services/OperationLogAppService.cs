@@ -134,8 +134,9 @@ public class LogCleanupBackgroundService(
     IServiceProvider services,
     ILogger<LogCleanupBackgroundService> logger) : BackgroundService
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromHours(6);
-    private static readonly TimeSpan FirstDelay = TimeSpan.FromMinutes(10);
+    // 生产默认值；测试注入毫秒级值以避免等待（行为不变重构：仅放宽可见性与只读约束供测试替换）
+    internal static TimeSpan Interval = TimeSpan.FromHours(6);
+    internal static TimeSpan FirstDelay = TimeSpan.FromMinutes(10);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
