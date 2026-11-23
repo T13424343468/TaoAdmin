@@ -147,6 +147,46 @@ public class ResourceMonitorServiceTests
     }
 
     [Fact]
+    public async Task SampleAllAsync_HTTP非2xx与空内容均不入账()
+    {
+        var (svc, history, publisher) = Build(new Dictionary<string, string?>
+        {
+            ["Monitor:Services:bad"] = "http://bad",     // HTTP 500：非 2xx 分支
+            ["Monitor:Services:empty"] = "http://empty"  // 204 空内容：解析为 null 分支
+        }, new StubHandler(req => req.RequestUri!.Host == "bad"
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)
+            : new HttpResponseMessage(System.Net.HttpStatusCode.NoContent)
+            {
+                Content = new StringContent("")
+            }));
+
+        await svc.SampleAllAsync(CancellationToken.None);
+
+        Assert.Null(history.LatestOf("bad"));
+        Assert.Null(history.LatestOf("empty"));
+        Assert.Empty(publisher.Events);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_采样中取消_走OCE分支退出()
+    {
+        // 采样阶段抛 OCE（FetchAsync 的异常过滤器放行取消）→ ExecuteAsync 捕获后跳出循环
+        var (svc, _, publisher) = Build(new Dictionary<string, string?>
+        {
+            ["Monitor:Resource:IntervalSeconds"] = "1",
+            ["Monitor:Services:gateway"] = "http://gw"
+        }, new StubHandler(_ => throw new OperationCanceledException("采样被取消")));
+
+        using var cts = new CancellationTokenSource();
+        await svc.StartAsync(cts.Token);
+        var finished = await Task.WhenAny(svc.ExecuteTask, Task.Delay(8000));
+
+        Assert.Same(svc.ExecuteTask, finished); // 循环已退出而非挂死
+        Assert.Empty(publisher.Events);
+        await svc.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_周期采样_单轮失败不终止_取消即停()
     {
         // 不注册阈值提供口 → 每轮采样抛异常 → 走「单轮失败不终止」分支；间隔 1 秒
