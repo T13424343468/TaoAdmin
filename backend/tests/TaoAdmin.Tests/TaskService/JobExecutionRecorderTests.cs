@@ -261,4 +261,22 @@ public class JobExecutionRecorderTests
         var notifyLog = _db.Queryable<SysNotifyLog>().Single();
         Assert.Contains("ghostJob", notifyLog.Subject);
     }
+
+    [Fact]
+    public async Task RecordingJob_Execute_ShouldForwardToRecorder()
+    {
+        // 包装器转发：RecordingJob.Execute 必须把执行交给记录器（落库+回写），内层作业真实执行
+        var job = await SeedJob();
+        var inner = new ScriptedJob(true);
+        var recording = new RecordingJob(inner, _recorder);
+
+        Assert.Same(inner, recording.Inner);
+        await recording.Execute(Context(job.Name, job.Group));
+
+        var log = _db.Queryable<SysJobLog>().Single();
+        Assert.True(log.Success);
+        Assert.Equal(job.Id, log.JobId);
+        Assert.Equal(1, inner.Executions);
+        Assert.Equal("执行成功", _db.Queryable<SysJob>().Single().LastResult);
+    }
 }
