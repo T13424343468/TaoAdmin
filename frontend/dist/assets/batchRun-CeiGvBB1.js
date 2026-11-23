@@ -1,0 +1,1 @@
+async function e(e,t){let n=0,r=0;for(let i of e)try{await t(i),n++}catch{r++}return{okCount:n,failedCount:r}}export{e as t};

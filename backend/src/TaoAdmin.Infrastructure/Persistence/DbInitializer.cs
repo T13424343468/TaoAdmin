@@ -15,12 +15,16 @@ public static class DbInitializer
     /// <summary>默认管理员密码（首次登录后请修改）</summary>
     public const string AdminPassword = "Admin@123";
 
-    public static void Initialize(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    public static void Initialize(ISqlSugarClient db, SnowflakeIdGenerator snowflake, params System.Reflection.Assembly[] apiScanAssemblies)
     {
         db.CodeFirst.InitTables(typeof(SysUser), typeof(SysRole), typeof(SysMenu), typeof(SysUserRole), typeof(SysRoleMenu), typeof(SysRoleApi), typeof(SysApi),
             typeof(SysTenant), typeof(SysMessage), typeof(SysWorkflow), typeof(SysWorkflowInstance), typeof(SysWorkflowTask),
             typeof(SysDictType), typeof(SysDictData), typeof(SysOperationLog), typeof(SysSiteConfig), typeof(SysAnnouncement),
-            typeof(TaoAdmin.Domain.Entities.SysFile));
+            typeof(TaoAdmin.Domain.Entities.SysFile), typeof(TaoAdmin.Domain.Entities.SysRegion),
+            typeof(TaoAdmin.Domain.Entities.SysRegionMeta),
+            typeof(TaoAdmin.Domain.Entities.SysAlertRule), typeof(TaoAdmin.Domain.Entities.SysNotifyLog),
+            typeof(TaoAdmin.Domain.Entities.SysCodeGenTable), typeof(TaoAdmin.Domain.Entities.SysCodeGenRecord),
+            typeof(TaoAdmin.Domain.Entities.SysPasswordResetToken));
 
         if (db.Queryable<SysUser>().Count() == 0)
             SeedBase(db, snowflake);
@@ -31,6 +35,8 @@ public static class DbInitializer
             SeedMessages(db, snowflake);
         SeedWorkflows(db, snowflake);
         SeedDicts(db, snowflake);
+        SeedRegions(db, snowflake);
+        SeedRegionMenu(db, snowflake);
         SeedSiteConfigMenu(db, snowflake);
         SeedOnlineUsersMenu(db, snowflake);
         SeedAnnouncementMenu(db, snowflake);
@@ -39,6 +45,14 @@ public static class DbInitializer
         SeedWorkflowMenu(db, snowflake);
         SeedMessageMenu(db, snowflake);
         SeedAuditMenus(db, snowflake);
+        SeedResourceMonitorMenu(db, snowflake);
+        SeedApiDocsMenu(db, snowflake);
+        SeedCodeGenMenu(db, snowflake);
+        // 菜单归并（老板反馈⑨）：示例类页面（租户/站内消息/工作流）单独成「示例演示」模块
+        RegroupDemoMenus(db, snowflake);
+
+        // 接口资源：启动时反射扫描真实控制器接口，增量同步进 SysApi（新增补录、消失停用）
+        ApiEndpointScanner.SyncApis(db, snowflake, apiScanAssemblies);
     }
 
     /// <summary>防护审计菜单与权限种子（幂等）：登录安全、审计日志、通知渠道（挂系统管理目录下）</summary>
@@ -78,6 +92,20 @@ public static class DbInitializer
                 }).ExecuteCommand();
         }
 
+        // 登录日志（⑰：审计日志的登录筛选视图，同一组件带 query 参数预置 category=login）
+        if (!db.Queryable<SysMenu>().Any(m => m.Component == "system/auditlog/login"))
+        {
+            var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "登录日志", MenuType = 1, Path = "/system/loginlog", Component = "system/auditlog/login", OrderNum = 12, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+            var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "审计日志管理", MenuType = 2, PermsCode = "sys:audit:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+            db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
+            if (adminRole != null)
+                db.Insertable(new List<SysRoleMenu>
+                {
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
+                }).ExecuteCommand();
+        }
+
         // 通知渠道
         if (!db.Queryable<SysMenu>().Any(m => m.Component == "system/notifychannel/index"))
         {
@@ -91,6 +119,63 @@ public static class DbInitializer
                     new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
                 }).ExecuteCommand();
         }
+    }
+
+    /// <summary>资源监控菜单与权限种子（②，逐项幂等：挂系统监控目录下，含阈值设置按钮权限）</summary>
+    private static void SeedResourceMonitorMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var now = DateTime.Now;
+        var monDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统监控" && m.ParentId == 0);
+        if (monDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "monitor/resource/index"))
+            return;
+
+        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = monDir.Id, MenuName = "资源监控", MenuType = 1, Path = "/monitor/resource", Component = "monitor/resource/index", OrderNum = 4, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        var managePerm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "资源阈值设置", MenuType = 2, PermsCode = "monitor:resource:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+        db.Insertable(new List<SysMenu> { menu, managePerm }).ExecuteCommand();
+
+        var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+        if (adminRole != null)
+            db.Insertable(new List<SysRoleMenu>
+            {
+                new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = managePerm.Id, CreatedAt = now, UpdatedAt = now }
+            }).ExecuteCommand();
+    }
+
+    /// <summary>接口文档菜单种子（⑦，逐项幂等：挂系统监控目录下，页面内嵌聚合三个服务文档）</summary>
+    private static void SeedApiDocsMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var now = DateTime.Now;
+        var monDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统监控" && m.ParentId == 0);
+        if (monDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "monitor/apidocs/index"))
+            return;
+
+        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = monDir.Id, MenuName = "接口文档", MenuType = 1, Path = "/monitor/apidocs", Component = "monitor/apidocs/index", OrderNum = 5, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        db.Insertable(menu).ExecuteCommand();
+
+        var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+        if (adminRole != null)
+            db.Insertable(new SysRoleMenu { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now }).ExecuteCommand();
+    }
+
+    /// <summary>代码生成器菜单与权限种子（逐项幂等：已有数据不重复插入，兼容老库增量升级）</summary>
+    private static void SeedCodeGenMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var now = DateTime.Now;
+        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
+        if (sysDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "codegen/index")) return;
+
+        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "代码生成", MenuType = 1, Path = "/system/codegen", Component = "codegen/index", OrderNum = 7, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "代码生成管理", MenuType = 2, PermsCode = "sys:codegen:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+        db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
+
+        var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+        if (adminRole != null)
+            db.Insertable(new List<SysRoleMenu>
+            {
+                new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
+            }).ExecuteCommand();
     }
 
     /// <summary>站点参数菜单与权限种子（逐项幂等：已有数据不重复插入，兼容老库增量升级）</summary>
@@ -203,10 +288,10 @@ public static class DbInitializer
     private static void SeedTenantMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
     {
         var now = DateTime.Now;
-        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
-        if (sysDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/tenant/index")) return;
+        var demoDir = EnsureDemoDir(db, snowflake);
+        if (demoDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/tenant/index")) return;
 
-        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "租户管理", MenuType = 1, Path = "/system/tenant", Component = "system/tenant/index", OrderNum = 8, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = demoDir.Id, MenuName = "租户管理", MenuType = 1, Path = "/system/tenant", Component = "system/tenant/index", OrderNum = 1, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
         var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "租户管理操作", MenuType = 2, PermsCode = "sys:tenant:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
         db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
 
@@ -223,10 +308,10 @@ public static class DbInitializer
     private static void SeedWorkflowMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
     {
         var now = DateTime.Now;
-        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
-        if (sysDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/workflow/index")) return;
+        var demoDir = EnsureDemoDir(db, snowflake);
+        if (demoDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/workflow/index")) return;
 
-        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "工作流审批", MenuType = 1, Path = "/system/workflow", Component = "system/workflow/index", OrderNum = 9, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = demoDir.Id, MenuName = "工作流审批", MenuType = 1, Path = "/system/workflow", Component = "system/workflow/index", OrderNum = 2, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
         db.Insertable(menu).ExecuteCommand();
 
         var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
@@ -238,15 +323,65 @@ public static class DbInitializer
     private static void SeedMessageMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
     {
         var now = DateTime.Now;
-        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
-        if (sysDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/message/index")) return;
+        var demoDir = EnsureDemoDir(db, snowflake);
+        if (demoDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/message/index")) return;
 
-        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "站内消息", MenuType = 1, Path = "/system/message", Component = "system/message/index", OrderNum = 10, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        var menu = new SysMenu { Id = snowflake.NextId(), ParentId = demoDir.Id, MenuName = "站内消息", MenuType = 1, Path = "/system/message", Component = "system/message/index", OrderNum = 3, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
         db.Insertable(menu).ExecuteCommand();
 
         var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
         if (adminRole != null)
             db.Insertable(new SysRoleMenu { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now }).ExecuteCommand();
+    }
+
+    /// <summary>示例演示模块的组件路径清单（老板反馈⑨：示例类页面单独成模块）</summary>
+    private static readonly string[] DemoMenuComponents =
+    {
+        "system/tenant/index",
+        "system/workflow/index",
+        "system/message/index",
+    };
+
+    /// <summary>取或建「示例演示」顶级目录（幂等；新建时同步给超管授权）</summary>
+    private static SysMenu? EnsureDemoDir(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var demoDir = db.Queryable<SysMenu>().First(m => m.MenuName == "示例演示" && m.ParentId == 0);
+        if (demoDir != null) return demoDir;
+
+        var now = DateTime.Now;
+        demoDir = new SysMenu { Id = snowflake.NextId(), ParentId = 0, MenuName = "示例演示", MenuType = 0, Path = "/demo", Icon = "Appstore", OrderNum = 5, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+        db.Insertable(demoDir).ExecuteCommand();
+
+        var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+        if (adminRole != null)
+            db.Insertable(new SysRoleMenu { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = demoDir.Id, CreatedAt = now, UpdatedAt = now }).ExecuteCommand();
+        return demoDir;
+    }
+
+    /// <summary>
+    /// 菜单归并（老板反馈⑨，幂等）：把示例类页面（租户/工作流/站内消息）从「系统管理」
+    /// 挪到独立的「示例演示」模块。老库增量升级走这里：只改挂载点，路径与组件不变，
+    /// 已有页签、收藏与权限绑定均不受影响。
+    /// </summary>
+    private static void RegroupDemoMenus(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var demoDir = EnsureDemoDir(db, snowflake);
+        if (demoDir == null) return;
+
+        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
+        if (sysDir == null) return;
+
+        // 局部变量中转：SqlSugar 表达式解析不了私有静态字段（Field can't be private）
+        var demoComponents = DemoMenuComponents;
+        var moved = db.Queryable<SysMenu>()
+            .Where(m => m.ParentId == sysDir.Id && demoComponents.Contains(m.Component))
+            .ToList();
+        foreach (var menu in moved.Where(m => m.ParentId != demoDir.Id))
+        {
+            menu.ParentId = demoDir.Id;
+            menu.UpdatedAt = DateTime.Now;
+            db.Updateable(menu).ExecuteCommand();
+        }
     }
 
     /// <summary>基础种子：内置角色、admin 账号、菜单/按钮权限、接口资源（仅首次运行）</summary>
@@ -315,23 +450,9 @@ public static class DbInitializer
         });
         db.Insertable(allMenus).ExecuteCommand();
 
-        // ---- 接口资源 ----
-        var apis = new List<SysApi>
-        {
-            new() { Id = NewId(), Name = "用户分页查询", Path = "/api/identity/users", HttpMethod = "GET", PermsCode = "sys:user:list", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "用户新增", Path = "/api/identity/users", HttpMethod = "POST", PermsCode = "sys:user:add", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "用户修改", Path = "/api/identity/users/{id}", HttpMethod = "PUT", PermsCode = "sys:user:edit", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "用户删除", Path = "/api/identity/users/{id}", HttpMethod = "DELETE", PermsCode = "sys:user:delete", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "角色列表", Path = "/api/identity/roles/all", HttpMethod = "GET", PermsCode = "sys:role:list", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "任务分页查询", Path = "/api/job/jobs", HttpMethod = "GET", PermsCode = "sys:job:list", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "服务健康查询", Path = "/api/monitor/services", HttpMethod = "GET", PermsCode = "monitor:service:list", Status = 1, CreatedAt = now, UpdatedAt = now },
-            new() { Id = NewId(), Name = "日志查询", Path = "/api/monitor/logs", HttpMethod = "GET", PermsCode = "monitor:log:list", Status = 1, CreatedAt = now, UpdatedAt = now }
-        };
-        db.Insertable(apis).ExecuteCommand();
-
-        // ---- 超管绑定全部菜单与接口 ----
+        // ---- 超管绑定全部菜单 ----
         db.Insertable(allMenus.Select(m => new SysRoleMenu { Id = NewId(), RoleId = adminRole.Id, MenuId = m.Id, CreatedAt = now, UpdatedAt = now }).ToList()).ExecuteCommand();
-        db.Insertable(apis.Select(a => new SysRoleApi { Id = NewId(), RoleId = adminRole.Id, ApiId = a.Id, CreatedAt = now, UpdatedAt = now }).ToList()).ExecuteCommand();
+        // 接口资源不再预置假数据：由 ApiEndpointScanner 启动时扫描真实控制器接口增量登记（见 Initialize）
     }
 
     // ==========================================================================
@@ -395,6 +516,44 @@ public static class DbInitializer
             new() { Id = NewId(), Title = "系统更新通知", Content = "本次更新新增：消息队列、工作流引擎、多租户支持。", Topic = "system.notice", ReceiverId = 0, IsRead = false, CreatedAt = now.AddHours(-2), UpdatedAt = now.AddHours(-2) },
             new() { Id = NewId(), Title = "数据备份完成", Content = "每日数据库自动备份已完成，无异常。", Topic = "system.notice", ReceiverId = 0, IsRead = true, CreatedAt = now.AddDays(-1), UpdatedAt = now.AddDays(-1) },
         }).ExecuteCommand();
+    }
+
+    /// <summary>行政区划数据导入（幂等）：数据包随程序集内嵌，sys_region 为空时整包导入（老板 2026-11-22 21:02 令⑪）</summary>
+    private static void SeedRegions(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+        => Persistence.RegionDataImporter.ImportIfEmpty(snowflake, db);
+
+    /// <summary>行政区划查看页菜单种子（幂等，挂系统管理目录下；含更新按钮权限，页面本身只读）</summary>
+    private static void SeedRegionMenu(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    {
+        var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
+        if (sysDir == null)
+            return;
+
+        var now = DateTime.Now;
+        if (!db.Queryable<SysMenu>().Any(m => m.Component == "system/region/index"))
+        {
+            var menu = new SysMenu { Id = snowflake.NextId(), ParentId = sysDir.Id, MenuName = "行政区划", MenuType = 1, Path = "/system/region", Component = "system/region/index", OrderNum = 14, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
+            var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "区划数据更新", MenuType = 2, PermsCode = "sys:region:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+            db.Insertable(new List<SysMenu> { menu, perm }).ExecuteCommand();
+
+            var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+            if (adminRole != null)
+                db.Insertable(new List<SysRoleMenu>
+                {
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = menu.Id, CreatedAt = now, UpdatedAt = now },
+                    new() { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }
+                }).ExecuteCommand();
+        }
+        else if (!db.Queryable<SysMenu>().Any(m => m.PermsCode == "sys:region:manage"))
+        {
+            // 老库补按钮权限：菜单已存在而更新权限缺失时补插
+            var menu = db.Queryable<SysMenu>().First(m => m.Component == "system/region/index");
+            var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "区划数据更新", MenuType = 2, PermsCode = "sys:region:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
+            db.Insertable(perm).ExecuteCommand();
+            var adminRole = db.Queryable<SysRole>().First(r => r.RoleCode == "admin");
+            if (adminRole != null)
+                db.Insertable(new SysRoleMenu { Id = snowflake.NextId(), RoleId = adminRole.Id, MenuId = perm.Id, CreatedAt = now, UpdatedAt = now }).ExecuteCommand();
+        }
     }
 
     /// <summary>

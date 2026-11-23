@@ -1,0 +1,1 @@
+function e(e,t,n,r){let i=Math.max(e-t,0);return i<=0?1:Math.min(n,Math.ceil(i/r))}export{e as t};

@@ -53,6 +53,8 @@ export interface FileItem {
   uploadBy: string | null;
   source: string | null;
   createdAt: string;
+  /** 移入回收站时间（仅回收站列表有值） */
+  deletedAt?: string | null;
 }
 
 export interface FilePage {
@@ -66,10 +68,20 @@ export async function listFiles(params: {
   pageIndex: number;
   pageSize: number;
   keyword?: string;
+  /** ⑯ 类型筛选：contentType 前缀（如 image/） */
+  contentType?: string;
+  /** ⑯ 上传时间区间（闭区间） */
+  begin?: string;
+  end?: string;
   /** 上一页返回的游标：带上后走游标翻页，深翻页恒定速度 */
   cursor?: string;
 }): Promise<FilePage> {
   return fcRequest<FilePage>({ method: 'GET', url: '/api/files', params });
+}
+
+/** ⑯ 存储占用统计：文件数与总字节数（未删除文件） */
+export async function getFileStats(): Promise<{ count: number; totalBytes: number }> {
+  return fcRequest<{ count: number; totalBytes: number }>({ method: 'GET', url: '/api/files/stats' });
 }
 
 export interface UploadResult extends FileItem {
@@ -84,8 +96,28 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return { ...data, fileName: data.fileName || file.name };
 }
 
-export async function deleteFile(id: string, physicalDelete = false): Promise<void> {
-  await fcRequest({ method: 'DELETE', url: `/api/files/${id}`, params: physicalDelete ? { physicalDelete: true } : undefined });
+/** 删除文件（移入回收站，磁盘文件保留；恢复/彻底删除走回收站接口） */
+export async function deleteFile(id: string): Promise<void> {
+  await fcRequest({ method: 'DELETE', url: `/api/files/${id}` });
+}
+
+/** 回收站分页（仅已删记录，按删除时间倒序） */
+export async function listRecycleBin(params: {
+  pageIndex: number;
+  pageSize: number;
+  keyword?: string;
+}): Promise<FilePage> {
+  return fcRequest<FilePage>({ method: 'GET', url: '/api/files/recycle-bin', params });
+}
+
+/** 从回收站恢复文件 */
+export async function restoreFile(id: string): Promise<void> {
+  await fcRequest({ method: 'POST', url: `/api/files/${id}/restore` });
+}
+
+/** 彻底删除（物理删记录并清理磁盘文件，不可恢复；调用方须已做二次确认） */
+export async function purgeFile(id: string): Promise<void> {
+  await fcRequest({ method: 'DELETE', url: `/api/files/${id}/purge` });
 }
 
 export async function pingTaoFiles(): Promise<string> {

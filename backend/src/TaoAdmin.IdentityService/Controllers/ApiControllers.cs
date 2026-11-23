@@ -14,7 +14,12 @@ public class AuthController : BaseApiController
 {
     private readonly AuthAppService _auth;
 
-    public AuthController(AuthAppService auth) => _auth = auth;
+    private readonly PasswordResetAppService _reset;
+
+    public AuthController(AuthAppService auth, PasswordResetAppService reset)
+    {
+        _auth = auth; _reset = reset;
+    }
 
     /// <summary>账号密码登录（登录来源登记进在线会话，供在线名单与强制下线使用）</summary>
     [HttpPost("login")]
@@ -31,6 +36,32 @@ public class AuthController : BaseApiController
     [HttpGet("userinfo")]
     public async Task<ApiResult<CurrentUserDto>> CurrentUser()
         => ApiOk(await _auth.GetCurrentUserAsync(User.GetUserId()));
+
+    /// <summary>锁屏解锁：复核当前账号登录密码（已登录会话内调用，不重发令牌、不走验证码）</summary>
+    [HttpPost("verify-password")]
+    public async Task<ApiResult<object>> VerifyPassword([FromBody] VerifyPasswordRequest request)
+    {
+        await _auth.VerifyPasswordAsync(User.GetUserId(), request.password);
+        return ApiOk("密码正确");
+    }
+
+    /// <summary>忘记密码：申请重置令牌（发到账号绑定邮箱；统一提示，不泄露账号是否存在）</summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<ApiResult<object>> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        await _reset.RequestResetAsync(request.username);
+        return ApiOk("如账号存在且已绑定邮箱，重置令牌已发送，请查收邮件");
+    }
+
+    /// <summary>重置密码：凭邮箱收到的令牌设置新密码（令牌一次性、15 分钟内有效）</summary>
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<ApiResult<object>> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        await _reset.ResetAsync(request.username, request.token, request.newPassword);
+        return ApiOk("密码重置成功，请使用新密码登录");
+    }
 
     /// <summary>退出登录（吊销当前会话并清理刷新令牌）</summary>
     [HttpPost("logout")]
@@ -77,6 +108,24 @@ public class UserController : BaseApiController
     {
         await _svc.DeleteAsync(long.Parse(id), User.GetUserId());
         return ApiOk("删除成功");
+    }
+
+    /// <summary>批量删除用户（自动跳过当前登录账号，返回 skipped 跳过数）</summary>
+    [HttpPost("batch-delete")]
+    [Permission("sys:user:delete")]
+    public async Task<ApiResult<object>> BatchDelete([FromBody] BatchIdsRequest req)
+    {
+        var skipped = await _svc.BatchDeleteAsync(req.Ids, User.GetUserId());
+        return ApiOk<object>(new { deleted = req.Ids.Distinct().Count() - skipped, skipped }, "批量删除完成");
+    }
+
+    /// <summary>批量启用/停用用户（自动跳过当前登录账号，返回 skipped 跳过数与失败明细）</summary>
+    [HttpPost("batch-status")]
+    [Permission("sys:user:edit")]
+    public async Task<ApiResult<object>> BatchStatus([FromBody] BatchStatusRequest req)
+    {
+        var (skipped, failed) = await _svc.BatchSetStatusAsync(req.Ids, req.status, User.GetUserId());
+        return ApiOk<object>(new { updated = req.Ids.Distinct().Count() - skipped - failed.Count, skipped, failed }, "批量操作完成");
     }
 
     /// <summary>重置密码</summary>
@@ -177,6 +226,15 @@ public class RoleController : BaseApiController
         return ApiOk("删除成功");
     }
 
+    /// <summary>批量删除角色（强一致：整批一个事务全成全败，任一条失败全部回滚）</summary>
+    [HttpPost("batch-delete")]
+    [Permission("sys:role:delete")]
+    public async Task<ApiResult<object>> BatchDelete([FromBody] BatchIdsRequest req)
+    {
+        var deleted = await _svc.BatchDeleteAsync(req.Ids);
+        return ApiOk<object>(new { deleted }, "批量删除完成");
+    }
+
     /// <summary>角色已分配权限</summary>
     [HttpGet("{id}/permissions")]
     [Permission("sys:role:list")]
@@ -267,6 +325,31 @@ public class ApiController : BaseApiController
         await _svc.DeleteAsync(long.Parse(id));
         return ApiOk("删除成功");
     }
+
+    /// <summary>批量删除接口资源（强一致：整批一个事务全成全败，任一条失败全部回滚）</summary>
+    [HttpPost("batch-delete")]
+    [Permission("sys:api:delete")]
+    public async Task<ApiResult<object>> BatchDelete([FromBody] BatchIdsRequest req)
+    {
+        var deleted = await _svc.BatchDeleteAsync(req.Ids);
+        return ApiOk<object>(new { deleted }, "批量删除完成");
+    }
+}
+
+/// <summary>批量操作请求：ID 列表（各列表页批量删除共用）</summary>
+public class BatchIdsRequest
+{
+    /// <summary>要操作的记录 ID</summary>
+    public List<long> Ids { get; set; } = new();
+}
+
+/// <summary>批量状态请求：ID 列表 + 目标状态</summary>
+public class BatchStatusRequest
+{
+    /// <summary>要操作的记录 ID</summary>
+    public List<long> Ids { get; set; } = new();
+    /// <summary>目标状态（1=启用 0=停用）</summary>
+    public int status { get; set; }
 }
 
 /// <summary>监控中心入口：服务健康 + 日志查询。业务在 MonitorAppService。</summary>
@@ -302,4 +385,50 @@ public class MonitorController : BaseApiController
         var (total, items) = await _svc.GetLogsAsync(pageIndex, pageSize, level, service, keyword);
         return ApiOk<object>(new { items, total, pageIndex, pageSize });
     }
+}
+
+/// <summary>资源监控入口（②）：实时快照、近期趋势、阈值设置与近期告警事件。</summary>
+[Route("monitor/resources")]
+public class ResourceMonitorController(
+    TaoAdmin.Common.Monitoring.ResourceHistoryStore history,
+    TaoAdmin.Common.Alerting.InMemoryAlertEventPublisher alerts,
+    ResourceThresholdProvider thresholds) : BaseApiController
+{
+    /// <summary>全部服务最新资源快照（含是否处于告警态由前端按阈值比对展示）</summary>
+    [HttpGet("current")]
+    [Permission("monitor:resource:list")]
+    public async Task<ApiResult<object>> Current()
+        => ApiOk<object>(new { items = history.LatestAll(), thresholds = await thresholds.GetAsync() });
+
+    /// <summary>单服务近期趋势（minutes 窗口内的采样序列，旧→新）</summary>
+    [HttpGet("history")]
+    [Permission("monitor:resource:list")]
+    public async Task<ApiResult<object>> History(
+        [FromQuery] string serviceName, [FromQuery] int minutes = 60)
+    {
+        var span = minutes is < 1 or > 1440 ? 60 : minutes;
+        var items = history.Since(serviceName, DateTime.Now.AddMinutes(-span));
+        return ApiOk<object>(new { serviceName, minutes = span, items, thresholds = await thresholds.GetAsync() });
+    }
+
+    /// <summary>读取资源异常阈值</summary>
+    [HttpGet("thresholds")]
+    [Permission("monitor:resource:list")]
+    public async Task<ApiResult<TaoAdmin.Common.Monitoring.ResourceThresholds>> Thresholds()
+        => ApiOk(await thresholds.GetAsync());
+
+    /// <summary>保存资源异常阈值（保存即生效，后台采样下一轮按新阈值评估）</summary>
+    [HttpPut("thresholds")]
+    [Permission("monitor:resource:manage")]
+    public async Task<ApiResult<object>> SaveThresholds([FromBody] TaoAdmin.Common.Monitoring.ResourceThresholds req)
+    {
+        await thresholds.SaveAsync(req);
+        return ApiOk("阈值已保存，立即生效");
+    }
+
+    /// <summary>近期资源告警事件（新→旧，最多 50 条）</summary>
+    [HttpGet("alerts")]
+    [Permission("monitor:resource:list")]
+    public ApiResult<object> Alerts()
+        => ApiOk<object>(new { items = alerts.Recent(50) });
 }

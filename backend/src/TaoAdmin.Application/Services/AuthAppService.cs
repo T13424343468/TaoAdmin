@@ -102,13 +102,13 @@ public class AuthAppService
     private readonly OnlineSessionStore _sessions;
     private readonly IPasswordPolicyProvider _policy;
     private readonly ILoginSecurityProvider _security;
-    private readonly LoginLockoutStore _lockout;
+    private readonly ILoginLockoutStore _lockout;
     private readonly Common.Security.CaptchaService _captcha;
 
     public AuthAppService(ISqlSugarClient db, ISysUserRepository users, JwtTokenService jwt,
         Common.Cache.RedisHelper redis, PermissionAppService permission, OnlineSessionStore sessions,
         IPasswordPolicyProvider policy, ILoginSecurityProvider security,
-        LoginLockoutStore lockout, Common.Security.CaptchaService captcha)
+        ILoginLockoutStore lockout, Common.Security.CaptchaService captcha)
     {
         _db = db; _users = users; _jwt = jwt; _redis = redis; _permission = permission; _sessions = sessions;
         _policy = policy; _security = security; _lockout = lockout; _captcha = captcha;
@@ -144,6 +144,11 @@ public class AuthAppService
         // 3. 登录成功：清零解锁
         _lockout.Clear(request.username);
 
+        // 同账号互踢（老板 2026-11-22 对账项④）：开关开启时，新登录吊销该用户全部旧会话，
+        // 旧端下次请求经 SessionRevocationMiddleware 命中吊销即 401；默认关闭保持多端并存现状。
+        if (security.KickOnDuplicateLogin)
+            _sessions.RevokeByUser(user.Id);
+
         var (roles, permissions, menus) = await _permission.GetUserAuthAsync(user.Id);
         var (token, _, sessionId) = _jwt.GenerateTokenWithSession(user.Id, user.UserName, roles, permissions, user.TenantId);
         _redis.SetString($"refresh_token:{user.Id}", _jwt.GenerateRefreshToken(), TimeSpan.FromDays(_jwt.RefreshExpireDays));
@@ -177,6 +182,28 @@ public class AuthAppService
             tenantName = tenantName ?? "平台",
             mustChangePassword = mustChange
         });
+    }
+
+    /// <summary>
+    /// 锁屏解锁：对当前已登录用户复核登录密码。
+    /// 不走验证码（用户已在会话内，仅复核本人密码）；失败照常进锁定账本防撞库，
+    /// 账号处于锁定期时与登录链一致一律拒绝。
+    /// </summary>
+    public async Task VerifyPasswordAsync(long userId, string password)
+    {
+        var security = await _security.GetAsync();
+        var user = await _users.FindByIdAsync(userId) ?? throw new DomainException("用户不存在", 401);
+
+        var locked = _lockout.GetRemainingLockMinutes(user.UserName, security.LoginLockMinutes);
+        if (locked.HasValue)
+            throw new DomainException($"连续登录失败已达 {security.LoginMaxFails} 次，账号已锁定，请约 {locked.Value} 分钟后再试", 423);
+
+        if (!BCrypt.Net.BCrypt.Verify(password, user.Password))
+        {
+            _lockout.RecordFailure(user.UserName, security.LoginMaxFails, security.LoginLockMinutes);
+            throw new DomainException("密码不正确，请重试", 400);
+        }
+        _lockout.Clear(user.UserName);
     }
 
     /// <summary>当前登录用户信息（角色 + 权限码 + 菜单树）</summary>

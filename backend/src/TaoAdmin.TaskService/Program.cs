@@ -1,4 +1,5 @@
-﻿using TaoAdmin.Common.Cache;
+﻿using TaoAdmin.Application.Services;
+using TaoAdmin.Common.Cache;
 using Nacos;
 using Nacos.AspNetCore.V2;
 using TaoAdmin.Common.Snowflake;
@@ -12,6 +13,8 @@ using Quartz.Impl;
 using Quartz.Spi;
 using SqlSugar;
 using Serilog;
+using TaoAdmin.Infrastructure.Persistence;
+using TaoAdmin.Infrastructure.Web;
 using System.Text;
 using System.Text.Json.Serialization;
 
@@ -47,8 +50,13 @@ if (builder.Configuration.GetValue<bool>("Nacos:Enabled"))
 // ==================== SqlSugar + Redis + 雪花ID ====================
 builder.Services.AddSqlSugar(builder.Configuration);
 var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-builder.Services.AddSingleton(StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnection));
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ => StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnection));
 builder.Services.AddSingleton<RedisHelper>();
+// 资源监控（②）：本机指标采集器
+builder.Services.AddSingleton<TaoAdmin.Common.Monitoring.ResourceCollector>(_ =>
+    new TaoAdmin.Common.Monitoring.ResourceCollector(
+        "taoadmin-task",
+        new TaoAdmin.Common.Monitoring.ProcessResourceSource()));
 builder.Services.AddSingleton(_ => new SnowflakeIdGenerator(
     builder.Configuration.GetValue<long>("Snowflake:DatacenterId", 1),
     builder.Configuration.GetValue<long>("Snowflake:WorkerId", 2)));
@@ -79,6 +87,11 @@ builder.Services.AddSingleton<IJobFactory, JobFactory>();
 builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
 builder.Services.AddHostedService<SchedulerHostedService>();
 builder.Services.AddScoped<HeartbeatJob>();
+// 告警通知接线：SMTP 真实发送 + 钉钉 Webhook 真实发送 + 执行历史记录（失败按规则触发告警）
+builder.Services.AddSingleton<DingTalkSender>();
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddSingleton<AlertNotifier>();
+builder.Services.AddSingleton<JobExecutionRecorder>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.NumberHandling = JsonNumberHandling.WriteAsString);
@@ -98,8 +111,15 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.MapGet("/health", () => Results.Ok(new { status = "UP", service = "taoadmin-task" }));
+// 资源指标端点（②）：本进程 CPU/内存/磁盘/网络快照，供网关聚合与监控中心采样
+app.MapGet("/metrics/resources", (TaoAdmin.Common.Monitoring.ResourceCollector collector) =>
+    Results.Ok(collector.Collect()));
 app.UseAuthorization();
+// 接口鉴权：按 SysApi 权限码校验（超管放行）
+app.UseMiddleware<TaoAdmin.Infrastructure.Web.ApiAuthMiddleware>();
 app.MapOpenApi(); // /openapi/v1.json
+// ⑥ 文档访问限制：默认仅本机可看，站点配置 DocsAccess:Mode 可放宽为登录后可看（须在文档端点之前）
+app.UseMiddleware<TaoAdmin.Common.Web.ApiDocsAccessMiddleware>();
 app.MapScalarApiReference(c => c.WithTitle("TaoAdmin 任务服务")); // /scalar 可视化文档
 app.MapControllers();
 
@@ -107,7 +127,18 @@ app.MapControllers();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ISqlSugarClient>();
-    db.CodeFirst.InitTables(typeof(SysJob));
+    db.CodeFirst.InitTables(typeof(SysJob), typeof(SysJobLog),
+        typeof(TaoAdmin.Domain.Entities.SysAlertRule), typeof(TaoAdmin.Domain.Entities.SysNotifyLog));
+    // 库表与种子由 IdentityService 统一初始化；本服务只保证接口扫描可用，失败不阻塞启动
+    try
+    {
+        db.CodeFirst.InitTables(typeof(TaoAdmin.Domain.Entities.SysApi));
+        ApiEndpointScanner.SyncApis(db, scope.ServiceProvider.GetRequiredService<SnowflakeIdGenerator>(), typeof(Program).Assembly);
+    }
+    catch (Exception ex)
+    {
+        Log.Logger.Warning(ex, "TaskService 接口扫描初始化失败（IdentityService 初始化中，下次启动补登）");
+    }
     if (db.Queryable<SysJob>().Count() == 0)
     {
         await db.Insertable(new SysJob

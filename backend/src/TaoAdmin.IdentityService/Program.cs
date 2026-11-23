@@ -7,6 +7,7 @@ using TaoAdmin.Common.Snowflake;
 using TaoAdmin.Common.Storage;
 using TaoAdmin.Domain.Repositories;
 using TaoAdmin.IdentityService.Handlers;
+using TaoAdmin.IdentityService.Services;
 using TaoAdmin.Infrastructure.Persistence;
 using TaoAdmin.Infrastructure.Repositories;
 using Scalar.AspNetCore;
@@ -103,6 +104,17 @@ builder.Services.AddScoped<RoleAppService>();
 builder.Services.AddScoped<MenuAppService>();
 builder.Services.AddScoped<ApiAppService>();
 builder.Services.AddSingleton<MonitorAppService>();
+// 资源监控（②）：本机指标采集 + 后台定时采样 + 历史趋势 + 阈值告警事件
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<TaoAdmin.Common.Monitoring.ResourceCollector>(_ =>
+    new TaoAdmin.Common.Monitoring.ResourceCollector(
+        "taoadmin-identity",
+        new TaoAdmin.Common.Monitoring.ProcessResourceSource()));
+builder.Services.AddSingleton<TaoAdmin.Common.Monitoring.ResourceHistoryStore>();
+builder.Services.AddSingleton<TaoAdmin.Common.Alerting.InMemoryAlertEventPublisher>();
+builder.Services.AddSingleton<TaoAdmin.Common.Alerting.IAlertEventPublisher>(sp =>
+    sp.GetRequiredService<TaoAdmin.Common.Alerting.InMemoryAlertEventPublisher>());
+builder.Services.AddHostedService<ResourceMonitorService>();
 // 扩展功能：工作流 / 多租户 / 站内消息 / 数据字典 / 操作日志 / 站点参数
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<WorkflowAppService>();
@@ -112,15 +124,37 @@ builder.Services.AddScoped<DictAppService>();
 builder.Services.AddScoped<OperationLogAppService>();
 builder.Services.AddScoped<SiteConfigAppService>();
 builder.Services.AddScoped<AnnouncementAppService>();
+builder.Services.AddScoped<CodeGenAppService>();
 builder.Services.AddScoped<UserExcelAppService>();
+// 资源监控阈值（②）：存站点配置键，监控页可改
+builder.Services.AddScoped<ResourceThresholdProvider>();
 // 防护审计：登录安全（验证码/锁定策略读取口）——AuthAppService 登录链依赖 ILoginSecurityProvider
 builder.Services.AddScoped<LoginSecurityAppService>();
 builder.Services.AddScoped<ILoginSecurityProvider>(sp => sp.GetRequiredService<LoginSecurityAppService>());
 builder.Services.AddSingleton<TaoAdmin.Common.Security.CaptchaService>();
-builder.Services.AddSingleton<TaoAdmin.Common.Auth.LoginLockoutStore>();
+// 登录锁定账本（⑭）：失败计数/锁定状态/剩余时间全存 Redis（带过期），重启不清零；
+// Redis 不可用时降级放行（fail-open）并记 Warning，恢复后账本继续生效
+builder.Services.AddSingleton<TaoAdmin.Common.Auth.IRedisLockoutDatabase>(sp =>
+    new TaoAdmin.Common.Auth.RedisLockoutDatabaseAdapter(sp.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>()));
+builder.Services.AddSingleton<TaoAdmin.Common.Auth.ILoginLockoutStore>(sp =>
+    new TaoAdmin.Common.Auth.RedisLoginLockoutStore(
+        sp.GetRequiredService<TaoAdmin.Common.Auth.IRedisLockoutDatabase>(),
+        sp.GetService<Microsoft.Extensions.Logging.ILogger<TaoAdmin.Common.Auth.RedisLoginLockoutStore>>()));
 builder.Services.AddSingleton<TaoAdmin.Application.Services.AuditCleanupService>();
 builder.Services.AddSingleton<TaoAdmin.Application.Services.AuditTrail>();
 builder.Services.AddScoped<NotifyChannelAppService>();
+// 告警通知接线：SMTP 真实发送 + 钉钉 Webhook 真实发送 + 规则化告警（配置运行时从库读取）
+builder.Services.AddSingleton<DingTalkSender>();
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddSingleton<AlertNotifier>();
+builder.Services.AddScoped<AlertRuleAppService>();
+builder.Services.AddSingleton<ServiceDownAlertEvaluator>(sp =>
+{
+    var notifier = sp.GetRequiredService<AlertNotifier>();
+    return new ServiceDownAlertEvaluator((eventType, title, content, count) =>
+        notifier.NotifyAsync(eventType, title, content, count));
+});
+builder.Services.AddHostedService<TaoAdmin.IdentityService.Monitoring.ServiceHealthMonitorService>();
 // 文件中心：本地盘存储默认；经 FileStorage:Provider=minio 切 MinIO 对象存储（数据不出内网）
 builder.Services.AddScoped<FileAppService>();
 builder.Services.AddScoped<TaoAdmin.Common.Storage.IFileStorageProvider>(sp =>
@@ -131,8 +165,23 @@ builder.Services.AddScoped<TaoAdmin.Common.Storage.IFileStorageProvider>(sp =>
         : new LocalFileStorageProvider(cfg.Root, sp.GetRequiredService<SnowflakeIdGenerator>().NextId);
 });
 // 密码策略：应用服务本身即策略读取口（改密/建人/登录注入同一实现）
+builder.Services.AddScoped<PasswordResetAppService>();
 builder.Services.AddScoped<PasswordPolicyAppService>();
 builder.Services.AddScoped<IPasswordPolicyProvider>(sp => sp.GetRequiredService<PasswordPolicyAppService>());
+// 行政区划（⑪地址库）：只读查询 + 后台更新（在线抓取民政部国家地名信息库，内置数据包兜底）
+builder.Services.AddScoped<RegionAppService>();
+builder.Services.AddHttpClient(TaoAdmin.Infrastructure.Persistence.McaRegionDataSource.ClientName, client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
+builder.Services.AddSingleton<TaoAdmin.Infrastructure.Persistence.McaRegionDataSource>(sp =>
+    new TaoAdmin.Infrastructure.Persistence.McaRegionDataSource(
+        sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient(TaoAdmin.Infrastructure.Persistence.McaRegionDataSource.ClientName),
+        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TaoAdmin.Infrastructure.Persistence.McaRegionDataSource>>()));
+builder.Services.AddSingleton<TaoAdmin.Application.Services.IRegionDataSource>(sp => sp.GetRequiredService<TaoAdmin.Infrastructure.Persistence.McaRegionDataSource>());
+builder.Services.AddSingleton<TaoAdmin.Application.Services.IRegionPackageProvider, TaoAdmin.Infrastructure.Persistence.BuiltinRegionPackageProvider>();
+builder.Services.AddSingleton<TaoAdmin.Application.Services.RegionWriteService>();
+builder.Services.AddSingleton<TaoAdmin.Application.Services.RegionUpdateService>();
 // 接口文档：官方内置 OpenAPI + Scalar UI
 builder.Services.AddOpenApi("v1", o =>
     o.AddDocumentTransformer((doc, ctx, ct) =>
@@ -170,15 +219,23 @@ var app = builder.Build();
 // ==================== 中间件管道 ====================
 app.UseSerilogRequestLogging();
 app.MapGet("/health", () => Results.Ok(new { status = "UP", service = "taoadmin-identity" }));
+// 资源指标端点（②）：本进程 CPU/内存/磁盘/网络快照，供网关聚合与监控中心采样
+app.MapGet("/metrics/resources", (TaoAdmin.Common.Monitoring.ResourceCollector collector) =>
+    Results.Ok(collector.Collect()));
 app.UseAuthentication();
 // 会话吊销校验：强制下线后令牌即刻失效（依赖认证结果，须在 UseAuthentication 之后）
 app.UseMiddleware<TaoAdmin.IdentityService.Middleware.SessionRevocationMiddleware>();
 app.UseAuthorization();
+// 接口级授权（增强层）：按 SysApi 登记（路径+HTTP 方法）叠加校验角色-接口授权，
+// 未登记接口/匿名接口/超管直接放行，与权限码级校验两道都过才放行
+app.UseMiddleware<TaoAdmin.Infrastructure.Web.ApiAuthMiddleware>();
 // 多租户：解析当前租户（X-Tenant-Id 头 / JWT tenant_id 声明），供全局数据过滤使用
 app.UseMiddleware<TaoAdmin.Common.MultiTenancy.TenantMiddleware>();
 // 操作日志：记录写操作与登录审计（异步落库，不阻塞请求）
 app.UseMiddleware<TaoAdmin.IdentityService.Middleware.OperationLogMiddleware>();
 app.MapOpenApi(); // /openapi/v1.json
+// ⑥ 文档访问限制：默认仅本机可看，站点配置 DocsAccess:Mode 可放宽为登录后可看（须在文档端点之前）
+app.UseMiddleware<TaoAdmin.Common.Web.ApiDocsAccessMiddleware>();
 app.MapScalarApiReference(c => c.WithTitle("TaoAdmin 权限服务")); // /scalar 可视化文档
 app.MapControllers();
 
@@ -204,7 +261,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ISqlSugarClient>();
     var snowflake = scope.ServiceProvider.GetRequiredService<SnowflakeIdGenerator>();
-    DbInitializer.Initialize(db, snowflake);
+    DbInitializer.Initialize(db, snowflake, typeof(Program).Assembly);
     Log.Logger.Information("IdentityService 就绪（默认账号 admin / Admin@123）");
 }
 

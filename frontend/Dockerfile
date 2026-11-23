@@ -1,11 +1,13 @@
 # ============ 构建阶段 ============
-FROM node:20-alpine AS builder
+# node:20 自带 npm 10.8 有 arborist edgesOut 空引用 bug；node:22 的 npm 无此问题且满足 rolldown 引擎要求
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 # 先复制依赖文件，利用 Docker 缓存
 COPY package.json ./
-RUN npm install --registry=https://registry.npmmirror.com
+# npmmirror 偶发 arborist edgesOut 空引用（npm 已知 bug），失败时清缓存回退官方源
+RUN npm install --registry=https://registry.npmmirror.com || (npm cache clean -f && npm install)
 
 # 复制源码并构建
 COPY . .

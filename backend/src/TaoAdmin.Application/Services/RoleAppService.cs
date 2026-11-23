@@ -62,6 +62,38 @@ public class RoleAppService
     /// <summary>删除角色（软删 + 级联清理关联）</summary>
     public async Task DeleteAsync(long id) => await _roles.SoftDeleteCascadeAsync(id);
 
+    /// <summary>
+    /// 批量删除角色（强一致场景：整批一个事务，任一条失败全部回滚，全成全败）。
+    /// 依据老板 2026-11-22 21:07 令：批量操作按业务场景判断事务，不搞一刀切——
+    /// 角色删除级联清理 role-menu/role-api/user-role 授权关系，部分失败会留下孤儿授权记录，故必须事务。
+    /// </summary>
+    public async Task<int> BatchDeleteAsync(List<long> ids)
+    {
+        var deleted = 0;
+        try
+        {
+            var result = await _db.Ado.UseTranAsync(async () =>
+            {
+                foreach (var id in ids.Distinct())
+                {
+                    var role = await _roles.FindByIdAsync(id);
+                    if (role == null) continue;
+                    await _roles.SoftDeleteCascadeAsync(id);
+                    deleted++;
+                }
+            });
+            if (!result.IsSuccess)
+                throw new DomainException($"批量删除角色失败，本次操作已全部回滚：{result.ErrorMessage}");
+        }
+        catch (DomainException) { throw; }
+        catch (Exception ex)
+        {
+            // UseTranAsync 回滚后异常可能原样重抛（随版本行为有异），统一转业务异常并注明已回滚
+            throw new DomainException($"批量删除角色失败，本次操作已全部回滚：{ex.Message}");
+        }
+        return deleted;
+    }
+
     /// <summary>角色已分配的权限（菜单ID + 接口ID）</summary>
     public async Task<(List<string> MenuIds, List<string> ApiIds)> GetPermissionsAsync(long roleId)
     {

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <!-- 锁屏遮罩：fixed 全屏 z-index 2000，盖住一切交互；输对密码解锁回原页面 -->
   <div v-if="lock.isLocked" class="lock-screen" @click.stop>
     <div class="lock-card">
@@ -8,6 +8,7 @@
       <div class="lock-name">{{ userStore.nickname }}</div>
       <div class="lock-hint">{{ throttleLeft > 0 ? `输入错误次数过多，${throttleLeft} 秒后可重试` : '屏幕已锁定，请输入密码解锁' }}</div>
       <a-input-password
+        ref="passwordInput"
         v-model:value="password"
         class="lock-input"
         placeholder="请输入当前账号密码"
@@ -23,21 +24,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useLockStore } from '@/stores/lock';
 import { useUserStore } from '@/stores/user';
-import { login } from '@/api/auth';
+import { verifyPassword } from '@/api/auth';
 import { buildFileUrl } from '@/api/taoFiles';
 
 const lock = useLockStore();
 const userStore = useUserStore();
 
 const password = ref('');
+const passwordInput = ref();
 const errorMessage = ref('');
 const unlocking = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const throttleLeft = ref(0);
+
+// 锁屏弹出后光标自动进密码框，解锁少一次点击
+watch(
+  () => lock.isLocked,
+  async (locked) => {
+    if (locked) {
+      await nextTick();
+      passwordInput.value?.focus?.();
+    }
+  },
+);
 
 const avatarUrl = computed(() => {
   const a = userStore.avatar;
@@ -66,10 +79,9 @@ async function onUnlock() {
   unlocking.value = true;
   const beforeThrottle = lock.throttleLeft() > 0;
   try {
-    await lock.unlock(async (username: string, pwd: string) => {
-      // 真实鉴权：复用登录接口；成功由组件层落新 token（后端重发会话）
-      const result = await login({ username, password: pwd });
-      userStore.setTokenValue(result.token);
+    await lock.unlock(async (_username: string, pwd: string) => {
+      // 真实鉴权：复核当前账号登录密码（不走验证码；失败照常进后端锁定账本）
+      await verifyPassword(pwd);
     }, userStore.userInfo?.username || '', password.value);
     if (!lock.isLocked) {
       password.value = '';
@@ -77,7 +89,7 @@ async function onUnlock() {
     } else if (!beforeThrottle && lock.throttleLeft() > 0) {
       errorMessage.value = '输入错误次数过多，请稍后重试';
     } else {
-      errorMessage.value = '密码不正确，请重试';
+      errorMessage.value = lock.lastError || '密码不正确，请重试';
     }
   } catch {
     errorMessage.value = '网络异常，请稍后重试';
