@@ -17,7 +17,8 @@ var gatewayLogCfg = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Service", "taoadmin-gateway")
     .WriteTo.Console()
-    .WriteTo.File(new Serilog.Formatting.Compact.CompactJsonFormatter(), "logs/gateway.jsonl", shared: true);
+    .WriteTo.File(new Serilog.Formatting.Compact.CompactJsonFormatter(),
+        Path.Combine(builder.Configuration["Monitor:LogDir"] ?? "logs", "gateway.jsonl"), shared: true);
 if (!string.IsNullOrWhiteSpace(esUrl))
     gatewayLogCfg.WriteTo.Elasticsearch(new ElasticsearchSinkOptions(new Uri(esUrl))
     {

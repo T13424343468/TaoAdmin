@@ -14,7 +14,9 @@ public class GatewayProgramProbeTests
     [Fact]
     public async Task Program_启动探针_健康检查与资源指标可用()
     {
-        using var factory = new WebApplicationFactory<GatewayResourceCollector>();
+        using var factory = new WebApplicationFactory<GatewayResourceCollector>()
+            .WithWebHostBuilder(b => b.UseSetting("Monitor:LogDir",
+                Path.Combine(Path.GetTempPath(), $"tao-gw1-logs-{Guid.NewGuid():N}")));
         var client = factory.CreateClient();
 
         var health = await client.GetAsync("/health");

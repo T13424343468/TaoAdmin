@@ -1,4 +1,9 @@
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Quartz;
+using Quartz.Impl;
+using System.Collections.Specialized;
 using TaoAdmin.TaskService;
 using Xunit;
 
@@ -21,6 +26,13 @@ public class TaskServiceProgramProbeV2Tests
                 b.UseSetting("ConnectionStrings:MySql", $"DataSource={Path.GetTempPath()}/tao-task2-{runId}.db");
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-task2-logs-{runId}"));
                 b.UseSetting("DocsAccess:Mode", "Open"); // 测试宿主非回环来源，文档放开以探文档端点
+                // 独立命名调度器：避免与 v1 探针共用默认 RAM 调度器导致 heartbeatJob 重复注册冲突
+                b.ConfigureServices(services =>
+                {
+                    services.RemoveAll<ISchedulerFactory>();
+                    services.AddSingleton<ISchedulerFactory>(new StdSchedulerFactory(
+                        new NameValueCollection { ["quartz.scheduler.instanceName"] = $"probe-{runId}" }));
+                });
                 extra?.Invoke(b);
             });
         return (factory, factory.CreateClient());

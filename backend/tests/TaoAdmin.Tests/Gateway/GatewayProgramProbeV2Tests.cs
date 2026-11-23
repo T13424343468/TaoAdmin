@@ -39,6 +39,7 @@ public class GatewayProgramProbeV2Tests
             {
                 b.UseSetting("Elasticsearch:Uri", "http://localhost:9200");
                 b.UseSetting("DocsAccess:Mode", "Open");
+                b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
             });
         var client = factory.CreateClient();
 
@@ -52,7 +53,9 @@ public class GatewayProgramProbeV2Tests
     public async Task 代理请求_匿名与已认证均走透传转换()
     {
         // 下游 5001 不可达：转换在转发前执行，断言代理链路真实走完（5xx 即网关已尝试转发）
-        using var factory = new WebApplicationFactory<GatewayResourceCollector>();
+        using var factory = new WebApplicationFactory<GatewayResourceCollector>()
+            .WithWebHostBuilder(b => b.UseSetting("Monitor:LogDir",
+                Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}")));
         var client = factory.CreateClient();
 
         var anonymous = await client.GetAsync("/api/identity/health");
@@ -79,6 +82,7 @@ public class GatewayProgramProbeV2Tests
                 b.UseSetting("NacosConfig:Listeners:0:Type", "JSON");
                 b.UseSetting("Nacos:ServerAddresses:0", "http://localhost:8848");
                 b.UseSetting("Nacos:ServiceName", "taoadmin-gateway-test");
+                b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
             });
         var client = factory.CreateClient();
 
@@ -94,6 +98,7 @@ public class GatewayProgramProbeV2Tests
             {
                 b.UseSetting("RateLimiting:PermitLimit", "1");
                 b.UseSetting("RateLimiting:WindowSeconds", "60");
+                b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
             });
         var client = factory.CreateClient();
 
