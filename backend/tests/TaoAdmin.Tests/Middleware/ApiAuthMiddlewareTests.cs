@@ -54,6 +54,8 @@ public class ApiAuthMiddlewareTests : IDisposable
         bool anonymous = false)
     {
         var ctx = new DefaultHttpContext();
+        // DefaultHttpContext 默认 Body 为 Stream.Null（写入即丢弃），换成内存流以便断言响应体
+        ctx.Response.Body = new MemoryStream();
         ctx.Request.Path = path;
         ctx.Request.Method = method;
         if (user != null) ctx.User = user;
