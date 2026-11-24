@@ -239,6 +239,44 @@ public class PasswordPolicyTests
     }
 
     [Fact]
+    public async Task PolicyService_CacheHit_ShouldReturnCachedWithoutReread()
+    {
+        using var db = NewSqlite();
+        db.CodeFirst.InitTables<SysSiteConfig>();
+        db.Insertable(new SysSiteConfig { Id = 1, ConfigKey = PolicyKeys.MinLength, ConfigValue = "9" }).ExecuteCommand();
+        var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        var svc = new PasswordPolicyAppService(db, new SnowflakeIdGenerator(1, 1), cache);
+
+        Assert.Equal(9, (await svc.GetAsync()).MinLength);
+
+        // 绕过服务直接改库（不清缓存）：命中缓存的读取不应落库，仍是旧值
+        db.Updateable<SysSiteConfig>().SetColumns(c => new SysSiteConfig { ConfigValue = "12" })
+            .Where(c => c.ConfigKey == PolicyKeys.MinLength).ExecuteCommand();
+        Assert.Equal(9, (await svc.GetAsync()).MinLength);
+    }
+
+    [Fact]
+    public async Task PolicyService_CheckAsync_ShouldValidateAgainstCurrentPolicy()
+    {
+        using var db = NewSqlite();
+        db.CodeFirst.InitTables<SysSiteConfig>();
+        var svc = new PasswordPolicyAppService(db, new SnowflakeIdGenerator(1, 1),
+            new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()));
+
+        // 默认策略 8 位 3 类
+        Assert.Equal("密码长度不能少于 8 位", await svc.CheckAsync("abc"));
+
+        // 保存更宽策略后校验同口径放宽（第二次保存走更新既有行路径）
+        await svc.SaveAsync(new PasswordPolicy(6, 1, 0));
+        await svc.SaveAsync(new PasswordPolicy(7, 2, 0));
+        Assert.Null(await svc.CheckAsync("abcdefg1")); // 8 位 2 类，满足 7 位 2 类策略
+        Assert.Equal("密码长度不能少于 7 位", await svc.CheckAsync("abc"));
+
+        // 两次保存只落 3 行（更新不重复插入）
+        Assert.Equal(3, db.Queryable<SysSiteConfig>().Count());
+    }
+
+    [Fact]
     public async Task PolicyService_SaveOutOfBound_ShouldThrow()
     {
         using var db = NewSqlite();

@@ -102,6 +102,14 @@ public class JwtTokenServiceTests
     }
 
     [Fact]
+    public void ExpiryProperties_ShouldExposeConfiguredOptions()
+    {
+        var svc = new JwtTokenService(new JwtOptions { ExpireMinutes = 42, RefreshExpireDays = 5 });
+        Assert.Equal(42, svc.ExpireMinutes);
+        Assert.Equal(5, svc.RefreshExpireDays);
+    }
+
+    [Fact]
     public void GenerateRefreshToken_ShouldBeRandomAnd256Bit()
     {
         var svc = new JwtTokenService(Options());

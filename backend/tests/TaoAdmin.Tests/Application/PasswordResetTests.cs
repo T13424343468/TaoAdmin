@@ -189,6 +189,44 @@ public class PasswordResetTests : IDisposable
         Assert.Equal(1, _db.Queryable<SysPasswordResetToken>().First().UsedAt != null ? 1 : 0);
     }
 
+    [Fact]
+    public async Task RequestReset_EmptyUserName_ShouldThrow400()
+    {
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _svc.RequestResetAsync(""));
+        Assert.Equal("请输入账号", ex.Message);
+        await Assert.ThrowsAsync<DomainException>(() => _svc.RequestResetAsync("   "));
+        Assert.Empty(_email.Sent);
+        Assert.Equal(0, _db.Queryable<SysPasswordResetToken>().Count());
+    }
+
+    [Fact]
+    public async Task Reset_IncompleteParams_ShouldThrow400()
+    {
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _svc.ResetAsync("", "tok", "NewPass@123"));
+        Assert.Equal("参数不完整", ex.Message);
+        ex = await Assert.ThrowsAsync<DomainException>(() => _svc.ResetAsync("alice", "  ", "NewPass@123"));
+        Assert.Equal("参数不完整", ex.Message);
+        Assert.Empty(_email.Sent);
+    }
+
+    [Fact]
+    public async Task Reset_UserDeletedAfterRequest_ShouldThrowAccountMissing()
+    {
+        var user = NewUser();
+        _db.Insertable(user).ExecuteCommand();
+        await _svc.RequestResetAsync("alice");
+        var raw = ExtractToken(_email.Sent[0].Body);
+
+        // 令牌仍有效，但账号已被删（软删）：重置必须拒绝，不留下无主改密
+        _db.Updateable<SysUser>().SetColumns(u => new SysUser { IsDeleted = true })
+            .Where(u => u.Id == user.Id).ExecuteCommand();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _svc.ResetAsync("alice", raw, "NewPass@123"));
+        Assert.Equal("账号不存在", ex.Message);
+        // 令牌未被消耗、口令未变
+        Assert.Null(_db.Queryable<SysPasswordResetToken>().First().UsedAt);
+    }
+
     private static string ExtractToken(string body)
     {
         var start = body.IndexOf("<code>") + "<code>".Length;
