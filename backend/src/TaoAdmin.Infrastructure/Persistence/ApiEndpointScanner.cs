@@ -109,7 +109,11 @@ public static class ApiEndpointScanner
                 .Where(t => !t.IsAbstract && typeof(ControllerBase).IsAssignableFrom(t));
             foreach (var controller in controllers)
             {
-                var controllerRoute = controller.GetCustomAttribute<RouteAttribute>()?.Template?.Trim('/') ?? string.Empty;
+                // RouteAttribute 构造函数要求显式模板（Template 恒非空），Trim 亦不返回 null，
+                // 故无需空链兜底：无 Route 特性时归空串
+                var controllerRoute = controller.GetCustomAttribute<RouteAttribute>()?.Template is { } routeTemplate
+                    ? routeTemplate.Trim('/')
+                    : string.Empty;
                 foreach (var method in controller.GetMethods(BindingFlags.Public | BindingFlags.Instance)
                              .Where(m => m.GetCustomAttribute<PermissionAttribute>() != null))
                 {

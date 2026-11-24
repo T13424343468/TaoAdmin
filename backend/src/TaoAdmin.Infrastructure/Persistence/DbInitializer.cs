@@ -289,7 +289,7 @@ public static class DbInitializer
     {
         var now = DateTime.Now;
         var demoDir = EnsureDemoDir(db, snowflake);
-        if (demoDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/tenant/index")) return;
+        if (db.Queryable<SysMenu>().Any(m => m.Component == "system/tenant/index")) return;
 
         var menu = new SysMenu { Id = snowflake.NextId(), ParentId = demoDir.Id, MenuName = "租户管理", MenuType = 1, Path = "/system/tenant", Component = "system/tenant/index", OrderNum = 1, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
         var perm = new SysMenu { Id = snowflake.NextId(), ParentId = menu.Id, MenuName = "租户管理操作", MenuType = 2, PermsCode = "sys:tenant:manage", OrderNum = 1, Status = 1, CreatedAt = now, UpdatedAt = now };
@@ -309,7 +309,7 @@ public static class DbInitializer
     {
         var now = DateTime.Now;
         var demoDir = EnsureDemoDir(db, snowflake);
-        if (demoDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/workflow/index")) return;
+        if (db.Queryable<SysMenu>().Any(m => m.Component == "system/workflow/index")) return;
 
         var menu = new SysMenu { Id = snowflake.NextId(), ParentId = demoDir.Id, MenuName = "工作流审批", MenuType = 1, Path = "/system/workflow", Component = "system/workflow/index", OrderNum = 2, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
         db.Insertable(menu).ExecuteCommand();
@@ -324,7 +324,7 @@ public static class DbInitializer
     {
         var now = DateTime.Now;
         var demoDir = EnsureDemoDir(db, snowflake);
-        if (demoDir == null || db.Queryable<SysMenu>().Any(m => m.Component == "system/message/index")) return;
+        if (db.Queryable<SysMenu>().Any(m => m.Component == "system/message/index")) return;
 
         var menu = new SysMenu { Id = snowflake.NextId(), ParentId = demoDir.Id, MenuName = "站内消息", MenuType = 1, Path = "/system/message", Component = "system/message/index", OrderNum = 3, Visible = true, Status = 1, CreatedAt = now, UpdatedAt = now };
         db.Insertable(menu).ExecuteCommand();
@@ -342,8 +342,9 @@ public static class DbInitializer
         "system/message/index",
     };
 
-    /// <summary>取或建「示例演示」顶级目录（幂等；新建时同步给超管授权）</summary>
-    private static SysMenu? EnsureDemoDir(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
+    /// <summary>取或建「示例演示」顶级目录（幂等；新建时同步给超管授权）。
+    /// 要么命中已有目录要么插入后返回，永不返回 null（返回非空引用，调用点无需判空）。</summary>
+    private static SysMenu EnsureDemoDir(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
     {
         var demoDir = db.Queryable<SysMenu>().First(m => m.MenuName == "示例演示" && m.ParentId == 0);
         if (demoDir != null) return demoDir;
@@ -366,7 +367,6 @@ public static class DbInitializer
     private static void RegroupDemoMenus(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
     {
         var demoDir = EnsureDemoDir(db, snowflake);
-        if (demoDir == null) return;
 
         var sysDir = db.Queryable<SysMenu>().First(m => m.MenuName == "系统管理" && m.ParentId == 0);
         if (sysDir == null) return;

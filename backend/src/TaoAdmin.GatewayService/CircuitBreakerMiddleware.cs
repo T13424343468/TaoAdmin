@@ -42,7 +42,8 @@ public class CircuitBreakerMiddleware
         }
 
         // 只对转发到下游的业务路径做熔断，健康检查与错误页跳过
-        var route = context.Request.Path.Value ?? "";
+        // （PathString.ToString() 契约即 Value ?? ""，且 Path.Value 在真实管道恒非空，无需空链兜底）
+        var route = context.Request.Path.ToString();
         if (!route.StartsWith("/api/"))
         {
             await _next(context);

@@ -131,7 +131,7 @@ using (var scope = app.Services.CreateScope())
         typeof(TaoAdmin.Domain.Entities.SysAlertRule), typeof(TaoAdmin.Domain.Entities.SysNotifyLog));
     // 库表与种子由 IdentityService 统一初始化；本服务只保证接口扫描可用，失败不阻塞启动
     ApiEndpointScanner.TrySyncApis(db, scope.ServiceProvider.GetRequiredService<SnowflakeIdGenerator>(),
-        ex => Log.Logger.Warning(ex, "TaskService 接口扫描初始化失败（IdentityService 初始化中，下次启动补登）"),
+        TaskServiceScanLog.ScanFailed,
         typeof(Program).Assembly);
     if (db.Queryable<SysJob>().Count() == 0)
     {
@@ -155,6 +155,15 @@ app.Run();
 
 /// <summary>测试入口钩子：供 WebApplicationFactory 探针启动本服务（不改变运行行为）。</summary>
 public partial class Program { }
+
+/// <summary>
+/// 接口扫描失败回调（原内联 lambda 在测试环境不可达，提为方法组以便实效断言告警写入）。
+/// </summary>
+internal static class TaskServiceScanLog
+{
+    internal static void ScanFailed(Exception ex)
+        => Log.Logger.Warning(ex, "TaskService 接口扫描初始化失败（IdentityService 初始化中，下次启动补登）");
+}
 
 /// <summary>探针定位标记：三个服务程序集的 Program 同名，测试用本类型唯一指定 TaskService 程序集。</summary>
 public sealed class TaskServiceProbe { }

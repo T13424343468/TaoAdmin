@@ -34,14 +34,15 @@ public class AuditLogExcelAppService(ISqlSugarClient db)
 
         var dict = rows.Select(l => new Dictionary<string, object>
         {
+            // Category/UserName/Method/Path/Ip 实体层非空（NOT NULL），空值兜底不可达；Detail 可空，导出兜底空串
             ["时间"] = l.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
-            ["类别"] = l.Category ?? "",
-            ["账号"] = l.UserName ?? "",
+            ["类别"] = l.Category,
+            ["账号"] = l.UserName,
             ["结果"] = l.Success == 1 ? "成功" : "失败",
-            ["方法"] = l.Method ?? "",
-            ["路径"] = l.Path ?? "",
+            ["方法"] = l.Method,
+            ["路径"] = l.Path,
             ["状态码"] = l.StatusCode,
-            ["IP"] = l.Ip ?? "",
+            ["IP"] = l.Ip,
             ["耗时(ms)"] = l.ElapsedMs,
             ["详情"] = l.Detail ?? ""
         }).ToList();

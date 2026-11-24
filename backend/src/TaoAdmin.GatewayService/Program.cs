@@ -94,11 +94,12 @@ builder.Services.AddRateLimiter(options =>
     };
     options.AddPolicy("global", context =>
     {
-        var userId = context.User.FindFirst("UserId")?.Value;
-        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // 限流中间件注册在认证之前（UseRateLimiter 先于 UseAuthentication），
+        // 进入分桶时 context.User 恒为未认证主体，按 UserId 分桶在当前管道不可达——
+        // 统一按客户端 IP 分桶；分桶键口径见 GatewayRateLimitKey（含无远端地址兜底）。
         var permit = builder.Configuration.GetValue<int>("RateLimiting:PermitLimit", 100);
         var window = builder.Configuration.GetValue<int>("RateLimiting:WindowSeconds", 10);
-        return RateLimitPartition.GetFixedWindowLimiter($"{userId ?? $"ip:{ip}"}", _ =>
+        return RateLimitPartition.GetFixedWindowLimiter(GatewayRateLimitKey.From(context.Connection.RemoteIpAddress), _ =>
             new FixedWindowRateLimiterOptions
             {
                 PermitLimit = permit,

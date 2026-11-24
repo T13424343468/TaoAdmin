@@ -87,7 +87,7 @@ public class BaseApiControllerTests
         {
             new System.Security.Claims.Claim("UserId", "42"),
             new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "tao"),
-            new System.Security.Claims.Claim(Auth.PermissionAuthorizationHandler.PermClaimType, "user:view"),
+            new System.Security.Claims.Claim(TaoAdmin.Common.Auth.PermissionAuthorizationHandler.PermClaimType, "user:view"),
             new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "ops"),
             new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "admin"),
         }, "TestAuth"));
