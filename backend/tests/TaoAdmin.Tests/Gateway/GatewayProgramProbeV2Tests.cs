@@ -34,44 +34,58 @@ public class GatewayProgramProbeV2Tests
     public async Task Program_ES日志装配与OpenAPI文档可用()
     {
         // ES 不可达：sink 装配成功，事件失败走 SelfLog 不崩主机；测试宿主非回环来源，文档放开以探文档端点
-        using var factory = new WebApplicationFactory<GatewayResourceCollector>()
+        var factory = new WebApplicationFactory<GatewayResourceCollector>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Elasticsearch:Uri", "http://localhost:9200");
                 b.UseSetting("DocsAccess:Mode", "Open");
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
             });
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        var openapi = await client.GetAsync("/openapi/v1.json");
-        Assert.True(openapi.IsSuccessStatusCode, $"openapi 状态 {(int)openapi.StatusCode}");
-        var doc = await openapi.Content.ReadAsStringAsync();
-        Assert.Contains("TaoAdmin 网关（YARP）", doc);
+            var openapi = await client.GetAsync("/openapi/v1.json");
+            Assert.True(openapi.IsSuccessStatusCode, $"openapi 状态 {(int)openapi.StatusCode}");
+            var doc = await openapi.Content.ReadAsStringAsync();
+            Assert.Contains("TaoAdmin 网关（YARP）", doc);
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
     public async Task 代理请求_匿名与已认证均走透传转换()
     {
         // 下游 5001 不可达：转换在转发前执行，断言代理链路真实走完（5xx 即网关已尝试转发）
-        using var factory = new WebApplicationFactory<GatewayResourceCollector>()
+        var factory = new WebApplicationFactory<GatewayResourceCollector>()
             .WithWebHostBuilder(b => b.UseSetting("Monitor:LogDir",
                 Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}")));
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        var anonymous = await client.GetAsync("/api/identity/health");
-        Assert.True((int)anonymous.StatusCode >= 500);
+            var anonymous = await client.GetAsync("/api/identity/health");
+            Assert.True((int)anonymous.StatusCode >= 500);
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
-        request.Headers.Authorization = new("Bearer", MakeToken());
-        var authed = await client.SendAsync(request);
-        Assert.True((int)authed.StatusCode >= 500);
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
+            request.Headers.Authorization = new("Bearer", MakeToken());
+            var authed = await client.SendAsync(request);
+            Assert.True((int)authed.StatusCode >= 500);
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
     public async Task Program_Nacos开关打开_装配不崩()
     {
         // 实验：Nacos:Enabled=true 时装配链是否可启动（Nacos 服务器不可达）
-        using var factory = new WebApplicationFactory<GatewayResourceCollector>()
+        var factory = new WebApplicationFactory<GatewayResourceCollector>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Nacos:Enabled", "true");
@@ -84,29 +98,43 @@ public class GatewayProgramProbeV2Tests
                 b.UseSetting("Nacos:ServiceName", "taoadmin-gateway-test");
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
             });
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        var health = await client.GetAsync("/health");
-        Assert.True(health.IsSuccessStatusCode, $"Nacos 开启后健康检查 {(int)health.StatusCode}");
+            var health = await client.GetAsync("/health");
+            Assert.True(health.IsSuccessStatusCode, $"Nacos 开启后健康检查 {(int)health.StatusCode}");
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
     public async Task 限流_窗口内第二次请求返回429()
     {
-        using var factory = new WebApplicationFactory<GatewayResourceCollector>()
+        var factory = new WebApplicationFactory<GatewayResourceCollector>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("RateLimiting:PermitLimit", "1");
                 b.UseSetting("RateLimiting:WindowSeconds", "60");
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
             });
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        await client.GetAsync("/api/job/jobs");   // 第 1 发：耗尽窗口配额（下游不可达 5xx 不影响计数）
-        var rejected = await client.GetAsync("/api/job/jobs"); // 第 2 发：同 IP 分桶超速
+            await client.GetAsync("/api/job/jobs");   // 第 1 发：耗尽窗口配额（下游不可达 5xx 不影响计数）
+            var rejected = await client.GetAsync("/api/job/jobs"); // 第 2 发：同 IP 分桶超速
 
-        Assert.Equal(429, (int)rejected.StatusCode);
-        var body = await rejected.Content.ReadAsStringAsync();
-        Assert.Contains("请求太频繁", body);
+            Assert.Equal(429, (int)rejected.StatusCode);
+            var body = await rejected.Content.ReadAsStringAsync();
+            Assert.Contains("请求太频繁", body);
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }

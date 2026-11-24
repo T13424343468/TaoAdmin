@@ -29,22 +29,22 @@ public class TaskServiceProgramProbeV3Tests
         var tempRoot = Path.Combine(Path.GetTempPath(), $"tao-task3-root-{runId}");
         Directory.CreateDirectory(tempRoot);
         var cwd = Directory.GetCurrentDirectory();
+        var factory = new WebApplicationFactory<TaskServiceProbe>()
+            .WithWebHostBuilder(b =>
+            {
+                b.UseContentRoot(tempRoot);
+                b.UseSetting("Database:Provider", "SQLite");
+                b.UseSetting("ConnectionStrings:MySql", $"DataSource={Path.GetTempPath()}/tao-task3-{runId}.db");
+                // 独立命名调度器：避免与内存调度器探针共用 default 实例撞作业键
+                b.ConfigureServices(services =>
+                {
+                    services.RemoveAll<ISchedulerFactory>();
+                    services.AddSingleton<ISchedulerFactory>(new StdSchedulerFactory(
+                        new NameValueCollection { ["quartz.scheduler.instanceName"] = $"probe3-{runId}" }));
+                });
+            });
         try
         {
-            using var factory = new WebApplicationFactory<TaskServiceProbe>()
-                .WithWebHostBuilder(b =>
-                {
-                    b.UseContentRoot(tempRoot);
-                    b.UseSetting("Database:Provider", "SQLite");
-                    b.UseSetting("ConnectionStrings:MySql", $"DataSource={Path.GetTempPath()}/tao-task3-{runId}.db");
-                    // 独立命名调度器：避免与内存调度器探针共用 default 实例撞作业键
-                    b.ConfigureServices(services =>
-                    {
-                        services.RemoveAll<ISchedulerFactory>();
-                        services.AddSingleton<ISchedulerFactory>(new StdSchedulerFactory(
-                            new NameValueCollection { ["quartz.scheduler.instanceName"] = $"probe3-{runId}" }));
-                    });
-                });
             var client = factory.CreateClient();
 
             var health = await client.GetAsync("/health");
@@ -55,6 +55,7 @@ public class TaskServiceProgramProbeV3Tests
         }
         finally
         {
+            ProbeDispose.SafeDispose(factory);
             TryDelete(Path.Combine(cwd, "logs", "task.jsonl"));
             Directory.Delete(tempRoot, true);
         }
@@ -68,7 +69,7 @@ public class TaskServiceProgramProbeV3Tests
         var dbPath = Path.Combine(Path.GetTempPath(), $"tao-task3-seed-{runId}.db");
         async Task StartHostAsync(string scheduler)
         {
-            using var factory = new WebApplicationFactory<TaskServiceProbe>()
+            var factory = new WebApplicationFactory<TaskServiceProbe>()
                 .WithWebHostBuilder(b =>
                 {
                     b.UseSetting("Database:Provider", "SQLite");
@@ -81,14 +82,25 @@ public class TaskServiceProgramProbeV3Tests
                             new NameValueCollection { ["quartz.scheduler.instanceName"] = $"{scheduler}-{runId}" }));
                     });
                 });
-            var client = factory.CreateClient();
-            var health = await client.GetAsync("/health");
-            Assert.True(health.IsSuccessStatusCode, $"宿主({scheduler})健康检查 {(int)health.StatusCode}");
+            try
+            {
+                var client = factory.CreateClient();
+                var health = await client.GetAsync("/health");
+                Assert.True(health.IsSuccessStatusCode, $"宿主({scheduler})健康检查 {(int)health.StatusCode}");
+            }
+            finally
+            {
+                ProbeDispose.SafeDispose(factory);
+            }
         }
 
-        await StartHostAsync("probe3a"); // 首启：空库播种
-        await StartHostAsync("probe3b"); // 二启：已有作业，走跳过播种分支
-        File.Delete(dbPath);
+        try
+        {
+            await StartHostAsync("probe3a"); // 首启：空库播种
+            await StartHostAsync("probe3b"); // 二启：已有作业，走跳过播种分支
+            File.Delete(dbPath);
+        }
+        finally { TryDelete(dbPath); }
     }
 
     internal static void TryDelete(string path)

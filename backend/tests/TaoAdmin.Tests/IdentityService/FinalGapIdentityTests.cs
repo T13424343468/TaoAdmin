@@ -17,7 +17,7 @@ public class FinalGapIdentityTests
     [Fact]
     public async Task DI评估器_DOWN服务_真实触发通知委托()
     {
-        using var factory = new WebApplicationFactory<IdentityServiceProbe>()
+        var factory = new WebApplicationFactory<IdentityServiceProbe>()
             .WithWebHostBuilder(b =>
             {
                 var runId = Guid.NewGuid().ToString("N");
@@ -26,19 +26,26 @@ public class FinalGapIdentityTests
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-idgap-logs-{runId}"));
                 b.UseSetting("DocsAccess:Mode", "Open");
             });
-
-        using var scope = factory.Services.CreateScope();
-        var evaluator = scope.ServiceProvider.GetRequiredService<ServiceDownAlertEvaluator>();
-        Assert.NotNull(evaluator);
-
-        // DOWN 服务：评估器调用 DI 注册的通知委托（Program.cs 注册的 NotifyAsync lambda 真实执行）
-        await evaluator.EvaluateAsync(new[]
+        try
         {
-            new ServiceItemDto { serviceName = "identity", displayName = "权限服务", status = "DOWN" },
-            new ServiceItemDto { serviceName = "task", displayName = "任务服务", status = "UP" }
-        });
 
-        Assert.Single(evaluator.DownCounts); // DOWN 累计计数，UP 清零不误伤
-        Assert.Equal(1, evaluator.DownCounts["identity"]);
+            using var scope = factory.Services.CreateScope();
+            var evaluator = scope.ServiceProvider.GetRequiredService<ServiceDownAlertEvaluator>();
+            Assert.NotNull(evaluator);
+
+            // DOWN 服务：评估器调用 DI 注册的通知委托（Program.cs 注册的 NotifyAsync lambda 真实执行）
+            await evaluator.EvaluateAsync(new[]
+            {
+                new ServiceItemDto { serviceName = "identity", displayName = "权限服务", status = "DOWN" },
+                new ServiceItemDto { serviceName = "task", displayName = "任务服务", status = "UP" }
+            });
+
+            Assert.Single(evaluator.DownCounts); // DOWN 累计计数，UP 清零不误伤
+            Assert.Equal(1, evaluator.DownCounts["identity"]);
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }

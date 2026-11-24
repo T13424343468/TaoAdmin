@@ -38,28 +38,42 @@ public class FinalGapGatewayTests
     [Fact]
     public async Task 代理请求_无效token_未认证身份走转换跳过透传()
     {
-        using var factory = Build();
+        var factory = Build();
         var client = factory.CreateClient();
+        try
+        {
 
-        // 无效 token：JWT 中间件产生非 null 但未认证的身份对象（IsAuthenticated=false 侧）
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
-        request.Headers.Authorization = new("Bearer", "invalid-token");
-        var resp = await client.SendAsync(request);
+            // 无效 token：JWT 中间件产生非 null 但未认证的身份对象（IsAuthenticated=false 侧）
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
+            request.Headers.Authorization = new("Bearer", "invalid-token");
+            var resp = await client.SendAsync(request);
 
-        Assert.True((int)resp.StatusCode >= 500); // 转换已执行，下游不可达 5xx
+            Assert.True((int)resp.StatusCode >= 500); // 转换已执行，下游不可达 5xx
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
     public async Task 代理请求_已认证但缺用户claim_空串透传不抛()
     {
-        using var factory = Build();
+        var factory = Build();
         var client = factory.CreateClient();
+        try
+        {
 
-        // 已认证但无 UserId/UserName claim：FindFirst ?? "" 的 null 侧
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
-        request.Headers.Authorization = new("Bearer", MakeToken(new Claim("role", "viewer")));
-        var resp = await client.SendAsync(request);
+            // 已认证但无 UserId/UserName claim：FindFirst ?? "" 的 null 侧
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
+            request.Headers.Authorization = new("Bearer", MakeToken(new Claim("role", "viewer")));
+            var resp = await client.SendAsync(request);
 
-        Assert.True((int)resp.StatusCode >= 500); // 转换已执行，下游不可达 5xx
+            Assert.True((int)resp.StatusCode >= 500); // 转换已执行，下游不可达 5xx
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }

@@ -27,15 +27,15 @@ public class IdentityProgramProbeV3Tests
         var tempRoot = Path.Combine(Path.GetTempPath(), $"tao-id3-root-{runId}");
         Directory.CreateDirectory(tempRoot);
         var cwd = Directory.GetCurrentDirectory();
+        var factory = new WebApplicationFactory<IdentityServiceProbe>()
+            .WithWebHostBuilder(b =>
+            {
+                b.UseContentRoot(tempRoot);
+                b.UseSetting("Database:Provider", "SQLite");
+                b.UseSetting("ConnectionStrings:MySql", $"DataSource={Path.GetTempPath()}/tao-id3-{runId}.db");
+            });
         try
         {
-            using var factory = new WebApplicationFactory<IdentityServiceProbe>()
-                .WithWebHostBuilder(b =>
-                {
-                    b.UseContentRoot(tempRoot);
-                    b.UseSetting("Database:Provider", "SQLite");
-                    b.UseSetting("ConnectionStrings:MySql", $"DataSource={Path.GetTempPath()}/tao-id3-{runId}.db");
-                });
             var client = factory.CreateClient();
 
             var health = await client.GetAsync("/health");
@@ -43,6 +43,7 @@ public class IdentityProgramProbeV3Tests
         }
         finally
         {
+            ProbeDispose.SafeDispose(factory);
             // 探针日志落运行目录 logs/，测完即清，避免污染回退目录断言
             TaoAdmin.Tests.TaskService.TaskServiceProgramProbeV3Tests.TryDelete(
                 Path.Combine(cwd, "logs", "identity.jsonl"));
@@ -54,7 +55,7 @@ public class IdentityProgramProbeV3Tests
     public void DI工厂_存储提供口按Provider切换MinIO()
     {
         var runId = Guid.NewGuid().ToString("N");
-        using var factory = new WebApplicationFactory<IdentityServiceProbe>()
+        var factory = new WebApplicationFactory<IdentityServiceProbe>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Database:Provider", "SQLite");
@@ -66,32 +67,46 @@ public class IdentityProgramProbeV3Tests
                 b.UseSetting("FileStorage:Minio:SecretKey", "sk");
                 b.UseSetting("FileStorage:Minio:Bucket", "taoadmin");
             });
+        try
+        {
 
-        using var scope = factory.Services.CreateScope();
-        var storage = scope.ServiceProvider.GetRequiredService<IFileStorageProvider>();
-        Assert.IsType<MinioFileStorageProvider>(storage); // Provider=minio 的装配分支
+            using var scope = factory.Services.CreateScope();
+            var storage = scope.ServiceProvider.GetRequiredService<IFileStorageProvider>();
+            Assert.IsType<MinioFileStorageProvider>(storage); // Provider=minio 的装配分支
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
     public async Task 业务异常_经error兜底端点返回领域码()
     {
         var runId = Guid.NewGuid().ToString("N");
-        using var factory = new WebApplicationFactory<IdentityServiceProbe>()
+        var factory = new WebApplicationFactory<IdentityServiceProbe>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Database:Provider", "SQLite");
                 b.UseSetting("ConnectionStrings:MySql", $"DataSource={Path.GetTempPath()}/tao-id3e-{runId}.db");
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-id3e-logs-{runId}"));
             });
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        // 未知账号登录抛 DomainException(400)，经 UseExceptionHandler 重执行 /error：
-        // 覆盖异常特征非空、领域异常取码、异常消息透出三个分支
-        var login = await client.PostAsync("/auth/login",
-            new StringContent("""{"username":"ghost","password":"x"}""", Encoding.UTF8, "application/json"));
-        Assert.True(login.IsSuccessStatusCode, $"兜底端点状态 {(int)login.StatusCode}");
-        var body = await login.Content.ReadAsStringAsync();
-        Assert.Contains("\"success\":false", body.Replace(" ", ""));
-        Assert.Contains("\"code\":400", body.Replace(" ", "")); // 领域码而非 500
+            // 未知账号登录抛 DomainException(400)，经 UseExceptionHandler 重执行 /error：
+            // 覆盖异常特征非空、领域异常取码、异常消息透出三个分支
+            var login = await client.PostAsync("/auth/login",
+                new StringContent("""{"username":"ghost","password":"x"}""", Encoding.UTF8, "application/json"));
+            Assert.True(login.IsSuccessStatusCode, $"兜底端点状态 {(int)login.StatusCode}");
+            var body = await login.Content.ReadAsStringAsync();
+            Assert.Contains("\"success\":false", body.Replace(" ", ""));
+            Assert.Contains("\"code\":400", body.Replace(" ", "")); // 领域码而非 500
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }

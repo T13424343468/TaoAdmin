@@ -18,27 +18,34 @@ public class TaskServiceProgramProbeTests
         var logDir = Path.Combine(Path.GetTempPath(), $"tao-task-logs-{runId}");
         var dbFile = Path.Combine(Path.GetTempPath(), $"tao-task-{runId}.db");
 
-        using var factory = new WebApplicationFactory<TaskServiceProbe>()
+        var factory = new WebApplicationFactory<TaskServiceProbe>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Database:Provider", "SQLite");
                 b.UseSetting("ConnectionStrings:MySql", $"DataSource={dbFile}");
                 b.UseSetting("Monitor:LogDir", logDir);
             });
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        var health = await client.GetAsync("/health");
-        Assert.True(health.IsSuccessStatusCode);
-        var body = await health.Content.ReadAsStringAsync();
-        Assert.Contains("UP", body);
-        Assert.Contains("taoadmin-task", body);
+            var health = await client.GetAsync("/health");
+            Assert.True(health.IsSuccessStatusCode);
+            var body = await health.Content.ReadAsStringAsync();
+            Assert.Contains("UP", body);
+            Assert.Contains("taoadmin-task", body);
 
-        var metrics = await client.GetAsync("/metrics/resources");
-        Assert.True(metrics.IsSuccessStatusCode);
-        var metricsBody = await metrics.Content.ReadAsStringAsync();
-        Assert.Contains("cpuPercent", metricsBody, StringComparison.OrdinalIgnoreCase);
+            var metrics = await client.GetAsync("/metrics/resources");
+            Assert.True(metrics.IsSuccessStatusCode);
+            var metricsBody = await metrics.Content.ReadAsStringAsync();
+            Assert.Contains("cpuPercent", metricsBody, StringComparison.OrdinalIgnoreCase);
 
-        // 启动种子：示例心跳任务已落库
-        Assert.True(File.Exists(dbFile));
+            // 启动种子：示例心跳任务已落库
+            Assert.True(File.Exists(dbFile));
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }

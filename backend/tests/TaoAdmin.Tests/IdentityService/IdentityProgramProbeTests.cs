@@ -18,26 +18,33 @@ public class IdentityProgramProbeTests
         var logDir = Path.Combine(Path.GetTempPath(), $"tao-id-logs-{runId}");
         var dbFile = Path.Combine(Path.GetTempPath(), $"tao-id-{runId}.db");
 
-        using var factory = new WebApplicationFactory<IdentityServiceProbe>()
+        var factory = new WebApplicationFactory<IdentityServiceProbe>()
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Database:Provider", "SQLite");
                 b.UseSetting("ConnectionStrings:MySql", $"DataSource={dbFile}");
                 b.UseSetting("Monitor:LogDir", logDir);
             });
-        var client = factory.CreateClient();
+        try
+        {
+            var client = factory.CreateClient();
 
-        var health = await client.GetAsync("/health");
-        Assert.True(health.IsSuccessStatusCode);
-        var body = await health.Content.ReadAsStringAsync();
-        Assert.Contains("UP", body);
-        Assert.Contains("taoadmin-identity", body);
+            var health = await client.GetAsync("/health");
+            Assert.True(health.IsSuccessStatusCode);
+            var body = await health.Content.ReadAsStringAsync();
+            Assert.Contains("UP", body);
+            Assert.Contains("taoadmin-identity", body);
 
-        var metrics = await client.GetAsync("/metrics/resources");
-        Assert.True(metrics.IsSuccessStatusCode);
-        Assert.Contains("cpuPercent", await metrics.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+            var metrics = await client.GetAsync("/metrics/resources");
+            Assert.True(metrics.IsSuccessStatusCode);
+            Assert.Contains("cpuPercent", await metrics.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
 
-        // 启动建表种子：SQLite 库文件已生成
-        Assert.True(File.Exists(dbFile));
+            // 启动建表种子：SQLite 库文件已生成
+            Assert.True(File.Exists(dbFile));
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }
