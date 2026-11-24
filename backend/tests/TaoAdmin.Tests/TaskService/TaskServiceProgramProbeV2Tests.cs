@@ -42,11 +42,16 @@ public class TaskServiceProgramProbeV2Tests
     public async Task Program_ES装配与OpenAPI文档可用()
     {
         var (factory, client) = Build(b => b.UseSetting("Elasticsearch:Uri", "http://localhost:9200"));
-        using var holder = factory;
-
-        var openapi = await client.GetAsync("/openapi/v1.json");
-        Assert.True(openapi.IsSuccessStatusCode, $"openapi 状态 {(int)openapi.StatusCode}");
-        Assert.Contains("TaoAdmin 任务服务 API", await openapi.Content.ReadAsStringAsync());
+        try
+        {
+            var openapi = await client.GetAsync("/openapi/v1.json");
+            Assert.True(openapi.IsSuccessStatusCode, $"openapi 状态 {(int)openapi.StatusCode}");
+            Assert.Contains("TaoAdmin 任务服务 API", await openapi.Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
@@ -63,9 +68,15 @@ public class TaskServiceProgramProbeV2Tests
             b.UseSetting("Nacos:ServerAddresses:0", "http://localhost:8848");
             b.UseSetting("Nacos:ServiceName", "taoadmin-task-test");
         });
-        using var holder = factory;
-
-        var health = await client.GetAsync("/health");
-        Assert.True(health.IsSuccessStatusCode, $"Nacos 开启后健康检查 {(int)health.StatusCode}");
+        try
+        {
+            var health = await client.GetAsync("/health");
+            Assert.True(health.IsSuccessStatusCode, $"Nacos 开启后健康检查 {(int)health.StatusCode}");
+        }
+        finally
+        {
+            // Nacos 客户端断连可能阻塞宿主停机：线程池释放+超时兜底，防同步上下文饿死
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }

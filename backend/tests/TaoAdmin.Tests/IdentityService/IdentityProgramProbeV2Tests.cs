@@ -36,39 +36,50 @@ public class IdentityProgramProbeV2Tests
     public async Task Program_ES装配_OpenAPI文档与error兜底端点可用()
     {
         var (factory, client) = Build(b => b.UseSetting("Elasticsearch:Uri", "http://localhost:9200"));
-        using var holder = factory;
+        try
+        {
+            var openapi = await client.GetAsync("/openapi/v1.json");
+            Assert.True(openapi.IsSuccessStatusCode, $"openapi 状态 {(int)openapi.StatusCode}");
+            Assert.Contains("TaoAdmin 权限服务 API", await openapi.Content.ReadAsStringAsync());
 
-        var openapi = await client.GetAsync("/openapi/v1.json");
-        Assert.True(openapi.IsSuccessStatusCode, $"openapi 状态 {(int)openapi.StatusCode}");
-        Assert.Contains("TaoAdmin 权限服务 API", await openapi.Content.ReadAsStringAsync());
-
-        // /error 直达：无异常特征 → 默认 500 分支，HTTP 200 包业务失败体
-        var error = await client.GetAsync("/error");
-        Assert.True(error.IsSuccessStatusCode);
-        var body = await error.Content.ReadAsStringAsync();
-        Assert.Contains("\"success\":false", body.ToLowerInvariant());
-        Assert.Contains("服务器内部错误", body);
+            // /error 直达：无异常特征 → 默认 500 分支，HTTP 200 包业务失败体
+            var error = await client.GetAsync("/error");
+            Assert.True(error.IsSuccessStatusCode);
+            var body = await error.Content.ReadAsStringAsync();
+            Assert.Contains("\"success\":false", body.ToLowerInvariant());
+            Assert.Contains("服务器内部错误", body);
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
     public void DI工厂_告警评估器_文件存储_区划数据源均可解析()
     {
         var (factory, client) = Build();
-        using var holder = factory;
-        _ = client;
+        try
+        {
+            _ = client;
 
-        using var scope = factory.Services.CreateScope();
-        var sp = scope.ServiceProvider;
+            using var scope = factory.Services.CreateScope();
+            var sp = scope.ServiceProvider;
 
-        var evaluator = sp.GetRequiredService<ServiceDownAlertEvaluator>();
-        Assert.NotNull(evaluator);
+            var evaluator = sp.GetRequiredService<ServiceDownAlertEvaluator>();
+            Assert.NotNull(evaluator);
 
-        var storage = sp.GetRequiredService<IFileStorageProvider>();
-        Assert.NotNull(storage); // 默认 Provider 非 minio → 本地盘实现
+            var storage = sp.GetRequiredService<IFileStorageProvider>();
+            Assert.NotNull(storage); // 默认 Provider 非 minio → 本地盘实现
 
-        var region = sp.GetRequiredService<McaRegionDataSource>();
-        Assert.NotNull(region);
-        Assert.IsType<McaRegionDataSource>(sp.GetRequiredService<IRegionDataSource>());
+            var region = sp.GetRequiredService<McaRegionDataSource>();
+            Assert.NotNull(region);
+            Assert.IsType<McaRegionDataSource>(sp.GetRequiredService<IRegionDataSource>());
+        }
+        finally
+        {
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 
     [Fact]
@@ -85,9 +96,15 @@ public class IdentityProgramProbeV2Tests
             b.UseSetting("Nacos:ServerAddresses:0", "http://localhost:8848");
             b.UseSetting("Nacos:ServiceName", "taoadmin-identity-test");
         });
-        using var holder = factory;
-
-        var health = await client.GetAsync("/health");
-        Assert.True(health.IsSuccessStatusCode, $"Nacos 开启后健康检查 {(int)health.StatusCode}");
+        try
+        {
+            var health = await client.GetAsync("/health");
+            Assert.True(health.IsSuccessStatusCode, $"Nacos 开启后健康检查 {(int)health.StatusCode}");
+        }
+        finally
+        {
+            // Nacos 客户端断连可能阻塞宿主停机：线程池释放+超时兜底，防同步上下文饿死
+            ProbeDispose.SafeDispose(factory);
+        }
     }
 }
