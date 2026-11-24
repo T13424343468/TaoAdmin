@@ -107,4 +107,109 @@ public class AnnouncementAppServiceTests
         var ex = await Assert.ThrowsAsync<DomainException>(() => svc.SetStatusAsync(999, true));
         Assert.Equal(404, ex.Code);
     }
+
+    // ==================== BatchDeleteAsync ====================
+
+    [Fact]
+    public async Task BatchDeleteAsync_ShouldSoftDeleteOnlyAlive_AndReturnActualCount()
+    {
+        var (svc, db) = Create();
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "甲" }, 1, "admin");
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "乙" }, 1, "admin");
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "丙" }, 1, "admin");
+        var ids = db.Queryable<SysAnnouncement>().Select(a => a.Id).ToList();
+        await svc.DeleteAsync(ids[2]); // 丙已软删，批量删除不应再计入
+
+        var deleted = await svc.BatchDeleteAsync(new List<long> { ids[0], ids[1], ids[2], 999 });
+
+        Assert.Equal(2, deleted); // 已删过的丙与不存在的 999 不计
+        Assert.Equal(3, db.Queryable<SysAnnouncement>().Count(a => a.IsDeleted));
+
+        // 重复批量删除：命中 0 条
+        Assert.Equal(0, await svc.BatchDeleteAsync(new List<long> { ids[0], ids[1] }));
+    }
+
+    // ==================== BatchSetStatusAsync ====================
+
+    [Fact]
+    public async Task BatchSetStatus_Online_ShouldFillPublishTime_OfflineShouldSwitch()
+    {
+        var (svc, db) = Create();
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "甲" }, 1, "admin");
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "乙" }, 1, "admin");
+        var ids = db.Queryable<SysAnnouncement>().OrderBy(a => a.Id).Select(a => a.Id).ToList();
+        db.Updateable<SysAnnouncement>().SetColumns(a => new SysAnnouncement { PublishTime = null })
+            .Where(a => ids.Contains(a.Id)).ExecuteCommand();
+
+        var (updated, failed) = await svc.BatchSetStatusAsync(ids, online: true);
+
+        Assert.Equal(2, updated);
+        Assert.Empty(failed);
+        foreach (var row in db.Queryable<SysAnnouncement>().ToList())
+        {
+            Assert.Equal(AnnouncementAppService.StatusPublished, row.Status);
+            Assert.NotNull(row.PublishTime); // 上线补发布时间
+        }
+
+        var (offUpdated, offFailed) = await svc.BatchSetStatusAsync(ids, online: false);
+        Assert.Equal(2, offUpdated);
+        Assert.Empty(offFailed);
+        Assert.All(db.Queryable<SysAnnouncement>().ToList(), a => Assert.Equal(AnnouncementAppService.StatusOffline, a.Status));
+    }
+
+    [Fact]
+    public async Task BatchSetStatus_SingleRowUpdateFails_ShouldContinueRest_AndReportDetail()
+    {
+        var (svc, db) = Create();
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "甲" }, 1, "admin");
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "乙" }, 1, "admin");
+        var ids = db.Queryable<SysAnnouncement>().OrderBy(a => a.Id).Select(a => a.Id).ToList();
+
+        // 落库委托注入：第一条抛异常，其余走真实库（实效验证容错分支，非桩造假）
+        var (updated, failed) = await svc.BatchSetStatusAsync(ids, online: true, (row, now) =>
+            row.Id == ids[0]
+                ? throw new InvalidOperationException("模拟落库故障")
+                : db.Updateable(row).ExecuteCommandAsync());
+
+        Assert.Equal(1, updated); // 第二条照常成功
+        var failure = Assert.Single(failed);
+        Assert.StartsWith($"{ids[0]}:", failure); // 失败明细带 ID 与原因
+        Assert.Contains("模拟落库故障", failure);
+        var okRow = db.Queryable<SysAnnouncement>().Single(a => a.Id == ids[1]);
+        Assert.Equal(AnnouncementAppService.StatusPublished, okRow.Status);
+    }
+
+    [Fact]
+    public async Task SetStatusCoreAsync_ShouldSetFieldsAndDelegatePersist()
+    {
+        var row = new SysAnnouncement { Id = 42, Status = AnnouncementAppService.StatusOffline };
+        var now = DateTime.Now;
+        SysAnnouncement? persisted = null;
+
+        await AnnouncementAppService.SetStatusCoreAsync(row, online: true, now,
+            (r, t) => { persisted = r; Assert.Equal(now, t); return Task.CompletedTask; });
+
+        Assert.Equal(AnnouncementAppService.StatusPublished, row.Status);
+        Assert.Equal(now, row.UpdatedAt);
+        Assert.Equal(now, row.PublishTime); // 上线补发布时间
+        Assert.Same(row, persisted); // 落库委托收到同一实体
+
+        var offlineTime = DateTime.Now.AddDays(-1);
+        var off = new SysAnnouncement { Id = 43, PublishTime = offlineTime };
+        await AnnouncementAppService.SetStatusCoreAsync(off, online: false, now, (_, _) => Task.CompletedTask);
+        Assert.Equal(AnnouncementAppService.StatusOffline, off.Status);
+        Assert.Equal(offlineTime, off.PublishTime); // 下线不动原发布时间
+    }
+
+    // ==================== Validate 内容超长 ====================
+
+    [Fact]
+    public async Task PublishAsync_ContentOverLimit_ShouldThrow()
+    {
+        var (svc, db) = Create();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            svc.PublishAsync(new AnnouncementSaveRequest { title = "超长", content = new string('x', 20001) }, 1, "admin"));
+        Assert.Contains("公告内容过长", ex.Message);
+        Assert.Empty(db.Queryable<SysAnnouncement>().ToList()); // 校验失败不落库
+    }
 }

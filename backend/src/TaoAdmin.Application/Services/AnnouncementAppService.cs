@@ -80,6 +80,11 @@ public class AnnouncementAppService(ISqlSugarClient db, SnowflakeIdGenerator sno
     /// 依据老板 2026-11-22 21:07 令：公告上下线各条互相独立，无需事务。
     /// </summary>
     public async Task<(int Updated, List<string> Failed)> BatchSetStatusAsync(List<long> ids, bool online)
+        => await BatchSetStatusAsync(ids, online, (row, now) => db.Updateable(row).ExecuteCommandAsync());
+
+    /// <summary>批量核心（落库委托可注入，便于实效验证单条失败的容错语义）：逐条互不影响，失败明细随返回汇报。</summary>
+    internal async Task<(int Updated, List<string> Failed)> BatchSetStatusAsync(
+        List<long> ids, bool online, Func<SysAnnouncement, DateTime, Task> updateRow)
     {
         var now = DateTime.Now;
         var rows = await db.Queryable<SysAnnouncement>()
@@ -90,10 +95,7 @@ public class AnnouncementAppService(ISqlSugarClient db, SnowflakeIdGenerator sno
         {
             try
             {
-                row.Status = online ? StatusPublished : StatusOffline;
-                row.UpdatedAt = now;
-                if (online) row.PublishTime = row.PublishTime ?? now;
-                await db.Updateable(row).ExecuteCommandAsync();
+                await SetStatusCoreAsync(row, online, now, updateRow);
                 updated++;
             }
             catch (Exception ex)
@@ -103,6 +105,16 @@ public class AnnouncementAppService(ISqlSugarClient db, SnowflakeIdGenerator sno
             }
         }
         return (updated, failed);
+    }
+
+    /// <summary>单条状态切换核心：置位状态、上线补发布时间，再经委托落库。</summary>
+    internal static async Task SetStatusCoreAsync(
+        SysAnnouncement row, bool online, DateTime now, Func<SysAnnouncement, DateTime, Task> updateRow)
+    {
+        row.Status = online ? StatusPublished : StatusOffline;
+        row.UpdatedAt = now;
+        if (online) row.PublishTime = row.PublishTime ?? now;
+        await updateRow(row, now);
     }
 
     /// <summary>分页查询（管理端：含已下线；keyword 按标题模糊，总数与明细同口径）</summary>

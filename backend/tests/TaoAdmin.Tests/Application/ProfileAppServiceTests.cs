@@ -141,4 +141,15 @@ public class ProfileAppServiceTests
         await Assert.ThrowsAsync<DomainException>(() =>
             svc.ChangePasswordAsync(999, new ChangePasswordRequest { oldPassword = "x", newPassword = "New@123456" }));
     }
+
+    [Fact]
+    public async Task ChangePasswordAsync_SameAsOld_ShouldThrow_AndKeepOld()
+    {
+        var (svc, repo, sessions) = Create();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            svc.ChangePasswordAsync(1, new ChangePasswordRequest { oldPassword = "Old@123456", newPassword = "Old@123456" }));
+        Assert.Contains("新密码不能与当前密码相同", ex.Message);
+        Assert.True(BCrypt.Net.BCrypt.Verify("Old@123456", repo.Users[1].Password)); // 原密码未动
+        Assert.Empty(sessions.List()); // 会话未受牵连（未注册即无有效会话）
+    }
 }
