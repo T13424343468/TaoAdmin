@@ -50,7 +50,12 @@ publish_backend() {
   dotnet publish "$BACKEND_DIR/src/TaoAdmin.IdentityService" -c Release -o "$PUBLISH_DIR/backend/identity" --nologo || ok=0
   dotnet publish "$BACKEND_DIR/src/TaoAdmin.GatewayService"  -c Release -o "$PUBLISH_DIR/backend/gateway"  --nologo || ok=0
   dotnet publish "$BACKEND_DIR/src/TaoAdmin.TaskService"     -c Release -o "$PUBLISH_DIR/backend/task"     --nologo || ok=0
-  dotnet publish "$TF_ROOT/src/TaoFiles.Api"                 -c Release -o "$PUBLISH_DIR/backend/taofiles" --nologo || ok=0
+  # 文件中心为兄弟仓可选依赖：源码缺失时跳过发布（CI 单仓检出场景），本地部署不受影响
+  if [[ -f "$TF_ROOT/src/TaoFiles.Api/TaoFiles.Api.csproj" ]]; then
+    dotnet publish "$TF_ROOT/src/TaoFiles.Api"               -c Release -o "$PUBLISH_DIR/backend/taofiles" --nologo || ok=0
+  else
+    log "[提示] 未找到文件中心源码($TF_ROOT)，跳过 taofiles 发布"
+  fi
   [[ $ok == 1 ]] || return 1
 }
 step 后端发布 publish_backend
@@ -85,7 +90,10 @@ step 数据库初始化 init_db
 # —— 步骤 5: 服务拉起（已存活则跳过）——
 start_services() {
   local svc asm dir port
-  for spec in "Identity:TaoAdmin.IdentityService:5001" "Gateway:TaoAdmin.GatewayService:5000" "Task:TaoAdmin.TaskService:5002" "Taofiles:TaoFiles.Api:5003"; do
+  # 服务清单：文件中心仅在已发布时拉起（CI 单仓检出场景自动跳过）
+  local SPECS=("Identity:TaoAdmin.IdentityService:5001" "Gateway:TaoAdmin.GatewayService:5000" "Task:TaoAdmin.TaskService:5002")
+  [[ -f "$PUBLISH_DIR/backend/taofiles/TaoFiles.Api.dll" ]] && SPECS+=("Taofiles:TaoFiles.Api:5003")
+  for spec in "${SPECS[@]}"; do
     svc="${spec%%:*}"; asm="${spec#*:}"; asm="${asm%%:*}"; port="${spec##*:}"
     if curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
       echo "$svc 已在运行，跳过"; continue
@@ -98,14 +106,16 @@ start_services() {
     sleep 0.2
     pgrep -f "${asm}.dll" | tail -1 >> "$RUN_DIR/${svc}.pid"
   done
-  # 冷启动可能含首次建库迁移，健康检查重试至多 120s
+  # 冷启动可能含首次建库迁移，健康检查重试至多 120s（端口按实际服务清单）
+  local PORTS=()
+  for spec in "${SPECS[@]}"; do PORTS+=("${spec##*:}"); done
   local ok=1
   for i in $(seq 1 60); do
     ok=1
-    for port in 5000 5001 5002 5003; do
+    for port in "${PORTS[@]}"; do
       curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1 || { ok=0; break; }
     done
-    [[ $ok == 1 ]] && { log "四服务健康检查通过（第 ${i} 次尝试）"; break; }
+    [[ $ok == 1 ]] && { log "服务健康检查通过（第 ${i} 次尝试）"; break; }
     sleep 2
   done
   if [[ $ok != 1 ]]; then
