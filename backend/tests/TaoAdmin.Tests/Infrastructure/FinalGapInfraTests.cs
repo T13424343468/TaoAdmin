@@ -119,6 +119,33 @@ public class FinalGapInfraTests
         Assert.Contains("省级清单为空", ex.Message);
     }
 
+    [Fact]
+    public async Task FetchLatest_行缺areaname_按空名映射不抛()
+    {
+        // 根与子级行均缺 areaname（?? "" null 侧），displaycode/children 齐备
+        var provinces = string.Join(",", Enumerable.Range(20, 25)
+            .Select(i => $"{{\"areaname\":\"省{i}\",\"displaycode\":\"{i}0000\"}}"));
+        var svc = Create(req =>
+        {
+            var url = req.RequestUri!.ToString();
+            if (url.Contains("queryXzqhChildren"))
+                return Json(Envelope($"{{\"data\":[{provinces}]}}"));
+            var form = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var code = form.Split('&').First(kv => kv.StartsWith("searchStr="))["searchStr=".Length..];
+            return Json(Envelope(
+                $$"""{"data":[{"areaname":null,"displaycode":"{{code}}","children":[{"areaname":null,"displaycode":"110101"}]}]}"""));
+        });
+
+        var snapshot = await svc.FetchLatestAsync(_ => { }, CancellationToken.None);
+
+        Assert.Equal(25, snapshot.Nodes.Count);
+        Assert.All(snapshot.Nodes, p =>
+        {
+            Assert.Equal(string.Empty, p.Name);          // 根缺 areaname 按空串映射
+            Assert.Equal(string.Empty, Assert.Single(p.Children).Name); // 子级缺 areaname 同样空串
+        });
+    }
+
     // ==================== SqlSugarSetup：AOP 与种子 null 侧 ====================
 
     private sealed class TenantRow : TaoAdmin.Common.Entities.ITenantEntity

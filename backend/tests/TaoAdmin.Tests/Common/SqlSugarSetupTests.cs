@@ -153,6 +153,45 @@ public class SqlSugarSetupTests
     }
 
     [Fact]
+    public void AOP_表达式更新无实体值_EntityValueNull侧_装配实效()
+    {
+        // 走 AddSqlSugar 装配（AOP 委托真实挂载），表达式更新无实体对象：
+        // DataExecuting 的 helper.EntityValue 为 null（?. 短路侧）
+        var (sp, db) = Build(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:MySql"] = SharedMemDb(),
+            ["Database:Provider"] = "SQLite",
+            ["MultiTenant:Enabled"] = "true"
+        });
+        using var _ = sp;
+        db.CodeFirst.InitTables<TenantRow>();
+        db.Insertable(new TenantRow { Id = 1, TenantId = 0, Name = "旧名" }).ExecuteCommand();
+
+        db.Updateable<TenantRow>()
+            .SetColumns(r => r.Name == "新名")
+            .Where(r => r.Id == 1)
+            .ExecuteCommand();
+
+        Assert.Equal("新名", db.Queryable<TenantRow>().First(r => r.Id == 1).Name);
+    }
+
+    [Fact]
+    public void AOP_无参SQL_parsNull侧_装配实效()
+    {
+        // 走 AddSqlSugar 装配：无参数 SQL 触发 OnLogExecuting，pars 为 null（string.Empty 侧）
+        var (sp, db) = Build(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:MySql"] = SharedMemDb(),
+            ["Database:Provider"] = "SQLite"
+        });
+        using var _ = sp;
+        db.CodeFirst.InitTables<TenantRow>();
+
+        var rows = db.Ado.SqlQuery<int>("SELECT COUNT(1) AS C FROM TenantRow");
+        Assert.NotEmpty(rows);
+    }
+
+    [Fact]
     public void RunCodeFirst_建表并执行种子回调()
     {
         var (sp, db) = Build(new Dictionary<string, string?>
