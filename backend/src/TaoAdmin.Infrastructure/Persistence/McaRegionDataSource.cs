@@ -233,9 +233,7 @@ public partial class McaRegionDataSource : IRegionDataSource
     private sealed class ApiRow
     {
         public string areaname { get; set; } = "";
-        public string? areacode { get; set; }
         public string? displaycode { get; set; }
-        public bool hasChildren { get; set; }
         public List<ApiRow>? children { get; set; }
     }
 }

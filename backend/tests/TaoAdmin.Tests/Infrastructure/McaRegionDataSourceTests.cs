@@ -226,4 +226,62 @@ public class McaRegionDataSourceTests
             () => svc.FetchLatestAsync(_ => { }, CancellationToken.None));
         Assert.Contains("省级清单数量 1", ex.Message);
     }
+
+    [Fact]
+    public async Task FetchLatest_信封data为null_解析兜底返回空触发数量异常()
+    {
+        // data 为 null（非 Object）→ ParseRowsOrList 返回 null → 有效省 0 条
+        var (svc, _) = Create(_ => Json(Envelope("null")));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.FetchLatestAsync(_ => { }, CancellationToken.None));
+        Assert.Contains("省级清单为空", ex.Message);
+    }
+
+    [Fact]
+    public async Task FetchLatest_子树rows对象结构成功解析出根节点()
+    {
+        // 子树走 data.data 为 {total, rows} 对象结构，成功解析并产出节点
+        var (svc, handler) = Create(req =>
+        {
+            var url = req.RequestUri!.ToString();
+            if (url.Contains("queryXzqhChildren"))
+                return Json(ProvinceListJson());
+            if (url.Contains("queryXzqhList"))
+            {
+                var body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var code = System.Text.RegularExpressions.Regex.Match(body, "searchStr=(\\d+)").Groups[1].Value;
+                return Json(SubtreeJson(code, "北京市"));
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("<html>数据截止日期为2025年12月31日</html>")
+            };
+        });
+        var snapshot = await svc.FetchLatestAsync(_ => { }, CancellationToken.None);
+        var bj = snapshot.Nodes.FirstOrDefault(n => n.Name == "北京市");
+        Assert.NotNull(bj);
+        Assert.Equal("110000", bj!.Code);
+        Assert.Contains(bj, snapshot.Nodes);
+    }
+
+    [Fact]
+    public async Task FetchVersion_说明页请求抛异常_版本号退化为抓取日期()
+    {
+        // 版本说明页请求直接抛异常 → catch 记警告并返回 null → 版本号退化
+        var (svc, _) = Create(req =>
+        {
+            var url = req.RequestUri!.ToString();
+            if (url.Contains("queryXzqhChildren"))
+                return Json(ProvinceListJson());
+            if (url.Contains("queryXzqhList"))
+            {
+                var body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var code = System.Text.RegularExpressions.Regex.Match(body, "searchStr=(\\d+)").Groups[1].Value;
+                return Json(SubtreeJson(code, "北京市"));
+            }
+            throw new HttpRequestException("version page boom"); // 版本说明页
+        });
+        var snapshot = await svc.FetchLatestAsync(_ => { }, CancellationToken.None);
+        Assert.StartsWith("民政部国家地名信息库·抓取于", snapshot.Version);
+    }
 }
