@@ -25,9 +25,11 @@ public static partial class ValidateHelper
     {
         if (password.Length < 8) return false;
         int kinds = 0;
-        if (password.Any(char.IsLower)) kinds++;
-        if (password.Any(char.IsUpper)) kinds++;
-        if (password.Any(char.IsDigit)) kinds++;
+        // 显式 lambda：方法组转换会共享 <>O 缓存字段（与 PasswordKindCount 同名），
+        // 分支覆盖随测试类执行顺序漂移；逐调用点缓存使分支可确定性覆盖
+        if (password.Any(c => char.IsLower(c))) kinds++;
+        if (password.Any(c => char.IsUpper(c))) kinds++;
+        if (password.Any(c => char.IsDigit(c))) kinds++;
         if (password.Any(c => !char.IsLetterOrDigit(c))) kinds++;
         return kinds >= 3;
     }
