@@ -117,4 +117,38 @@ public class AuditLogExcelAppServiceTests : IDisposable
         // 软删数据不进导出
         Assert.Equal(1, count);
     }
+
+    [Fact]
+    public async Task ExportAsync_AllFiltersCombined_ShouldApplyEveryCondition()
+    {
+        // 全筛选链：category + userName + success + begin + end 五条件同时生效
+        var hit = NewLog("login", "alice", 1, new DateTime(2026, 11, 22, 0, 0, 0, DateTimeKind.Utc));
+        var wrongUser = NewLog("login", "bob", 1, new DateTime(2026, 11, 22, 0, 0, 0, DateTimeKind.Utc));
+        var wrongSuccess = NewLog("login", "alice", 0, new DateTime(2026, 11, 22, 0, 0, 0, DateTimeKind.Utc));
+        var tooEarly = NewLog("login", "alice", 1, new DateTime(2026, 11, 20, 0, 0, 0, DateTimeKind.Utc));
+        var tooLate = NewLog("login", "alice", 1, new DateTime(2026, 11, 25, 0, 0, 0, DateTimeKind.Utc));
+        var wrongCategory = NewLog("operation", "alice", 1, new DateTime(2026, 11, 22, 0, 0, 0, DateTimeKind.Utc));
+        _db.Insertable(new[] { hit, wrongUser, wrongSuccess, tooEarly, tooLate, wrongCategory }).ExecuteCommand();
+
+        var (content, count) = await _svc.ExportAsync("login", "ali", 1,
+            new DateTime(2026, 11, 21, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 11, 24, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(1, count);
+        var back = MiniExcelLibs.MiniExcel.Query(new MemoryStream(content), true)
+            .Cast<IDictionary<string, object?>>().ToList();
+        Assert.Single(back);
+        Assert.Equal("alice", back[0]["账号"]!.ToString());
+    }
+
+    [Fact]
+    public async Task ExportAsync_AllFiltersNull_ShouldSkipEveryWhereIf()
+    {
+        // 全空筛选：五个 WhereIF 全部跳过（category/userName 传 null，success/begin/end 传 null）
+        _db.Insertable(new[] { NewLog("login", "a", 1), NewLog("operation", "b", 0) }).ExecuteCommand();
+
+        var (_, count) = await _svc.ExportAsync(null, null, null, null, null);
+
+        Assert.Equal(2, count);
+    }
 }
