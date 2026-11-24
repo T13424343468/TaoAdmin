@@ -142,6 +142,8 @@ builder.Services.AddSingleton<TaoAdmin.Common.Auth.ILoginLockoutStore>(sp =>
         sp.GetService<Microsoft.Extensions.Logging.ILogger<TaoAdmin.Common.Auth.RedisLoginLockoutStore>>()));
 builder.Services.AddSingleton<TaoAdmin.Application.Services.AuditCleanupService>();
 builder.Services.AddSingleton<TaoAdmin.Application.Services.AuditTrail>();
+// 审计导出 Excel（⑮）：AuditController 构造依赖，缺失会致验证码/审计接口 500（真机 v26 实测教训）
+builder.Services.AddScoped<TaoAdmin.Application.Services.AuditLogExcelAppService>();
 builder.Services.AddScoped<NotifyChannelAppService>();
 // 告警通知接线：SMTP 真实发送 + 钉钉 Webhook 真实发送 + 规则化告警（配置运行时从库读取）
 builder.Services.AddSingleton<DingTalkSender>();
