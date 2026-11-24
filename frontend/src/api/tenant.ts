@@ -1,4 +1,4 @@
-import { request } from './request';
+﻿import { request } from './request';
 
 // ============ 多租户管理（系统管理） ============
 
@@ -35,5 +35,19 @@ export function saveTenant(data: TenantSaveParams): Promise<void> {
     url: data.id ? `/identity/tenants/${data.id}` : '/identity/tenants',
     method: data.id ? 'put' : 'post',
     data,
+  });
+}
+
+/** 删除租户（软删） */
+export function deleteTenant(id: string): Promise<void> {
+  return request<void>({ url: `/identity/tenants/${id}`, method: 'delete' });
+}
+
+/** 批量删除租户（软删） */
+export function batchDeleteTenants(ids: string[]): Promise<{ deleted: number }> {
+  return request<{ deleted: number }>({
+    url: '/identity/tenants/batch-delete',
+    method: 'post',
+    data: { ids: ids.map(Number) },
   });
 }

@@ -1,3 +1,4 @@
+﻿using System.Text;
 using SqlSugar;
 using TaoAdmin.Application.Services;
 using TaoAdmin.Common.Snowflake;
@@ -131,5 +132,131 @@ public class UserExcelAppServiceTests : IDisposable
         Assert.Contains(result.errors, e => e.reason.Contains("密码"));
         Assert.Contains(result.errors, e => e.reason.Contains("状态"));
         Assert.Equal(0, _db.Queryable<SysUser>().Count());
+    }
+
+    [Fact]
+    public async Task ImportAsync_BlankUserName_WithOtherCellFilled_ShouldReportError()
+    {
+        // 用户名为空但昵称有值：不算整行空白，必须报「用户名不能为空」
+        var outMs = new MemoryStream();
+        await MiniExcelLibs.MiniExcel.SaveAsAsync(outMs, new List<Dictionary<string, object>>
+        {
+            new() { ["用户名"] = "", ["昵称"] = "无名氏", ["邮箱"] = "", ["手机号"] = "", ["状态(启用/禁用)"] = "启用", ["密码(仅导入,留空用默认密码)"] = "" },
+        }, sheetName: "用户导入模板");
+        var result = await _svc.ImportAsync(new MemoryStream(outMs.ToArray()), 1);
+
+        Assert.Equal(1, result.total);
+        Assert.Equal(0, result.success);
+        var err = Assert.Single(result.errors);
+        Assert.Equal(1, err.row);
+        Assert.Contains("用户名不能为空", err.reason);
+        Assert.Equal(0, _db.Queryable<SysUser>().Count());
+    }
+
+    [Fact]
+    public async Task ImportAsync_OverLongUserName_ShouldReportError()
+    {
+        // 用户名 51 个字符：超过 50 上限被拦
+        var outMs = new MemoryStream();
+        await MiniExcelLibs.MiniExcel.SaveAsAsync(outMs, new List<Dictionary<string, object>>
+        {
+            new() { ["用户名"] = new string('u', 51), ["昵称"] = "", ["邮箱"] = "", ["手机号"] = "", ["状态(启用/禁用)"] = "启用", ["密码(仅导入,留空用默认密码)"] = "" },
+        }, sheetName: "用户导入模板");
+        var result = await _svc.ImportAsync(new MemoryStream(outMs.ToArray()), 1);
+
+        Assert.Equal(0, result.success);
+        var err = Assert.Single(result.errors);
+        Assert.Contains("超过 50 个字符", err.reason);
+        Assert.Equal(0, _db.Queryable<SysUser>().Count());
+    }
+
+    [Fact]
+    public async Task ImportAsync_OverLongEmail_AndPhone_ShouldReportErrors()
+    {
+        // 邮箱 101 字符、手机号 21 字符：分别报「邮箱过长」「手机号过长」
+        var outMs = new MemoryStream();
+        await MiniExcelLibs.MiniExcel.SaveAsAsync(outMs, new List<Dictionary<string, object>>
+        {
+            new() { ["用户名"] = "mailman", ["昵称"] = "", ["邮箱"] = new string('e', 101), ["手机号"] = "", ["状态(启用/禁用)"] = "启用", ["密码(仅导入,留空用默认密码)"] = "" },
+            new() { ["用户名"] = "phoneman", ["昵称"] = "", ["邮箱"] = "", ["手机号"] = new string('1', 21), ["状态(启用/禁用)"] = "启用", ["密码(仅导入,留空用默认密码)"] = "" },
+        }, sheetName: "用户导入模板");
+        var result = await _svc.ImportAsync(new MemoryStream(outMs.ToArray()), 1);
+
+        Assert.Equal(2, result.total);
+        Assert.Equal(0, result.success);
+        Assert.Equal(2, result.errors.Count);
+        Assert.Contains(result.errors, e => e.reason.Contains("邮箱过长"));
+        Assert.Contains(result.errors, e => e.reason.Contains("手机号过长"));
+        Assert.Equal(0, _db.Queryable<SysUser>().Count());
+    }
+
+    [Fact]
+    public async Task ImportAsync_GarbageStream_ShouldThrowDomainException()
+    {
+        // 非 xlsx 字节流：解析失败统一抛 DomainException，提示用模板
+        var ms = new MemoryStream(Encoding.UTF8.GetBytes("this is not an excel file at all"));
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _svc.ImportAsync(ms, 1));
+        Assert.Contains("表格解析失败", ex.Message);
+        Assert.Equal(0, _db.Queryable<SysUser>().Count());
+    }
+
+    [Fact]
+    public async Task ImportAsync_ValidRow_WithPhoneDisabledAndCustomPassword_ShouldPersistAll()
+    {
+        // 手机号有值 + 状态禁用 + 自定义密码：三个未覆盖落库分支一次打满
+        var outMs = new MemoryStream();
+        await MiniExcelLibs.MiniExcel.SaveAsAsync(outMs, new List<Dictionary<string, object>>
+        {
+            new() { ["用户名"] = "zhaoliu", ["昵称"] = "赵六", ["邮箱"] = "zhaoliu@example.com", ["手机号"] = "13900139000", ["状态(启用/禁用)"] = "禁用", ["密码(仅导入,留空用默认密码)"] = "Xy@98765" },
+        }, sheetName: "用户导入模板");
+        var result = await _svc.ImportAsync(new MemoryStream(outMs.ToArray()), 1);
+
+        Assert.Equal(1, result.success);
+        Assert.Empty(result.errors);
+        var user = Assert.Single(_db.Queryable<SysUser>().ToList());
+        Assert.Equal("zhaoliu", user.UserName);
+        Assert.Equal(0, user.Status);          // 禁用 → 0
+        Assert.Equal("13900139000", user.Phone); // 手机号有值落库
+        Assert.True(BCrypt.Net.BCrypt.Verify("Xy@98765", user.Password)); // 自定义密码哈希
+    }
+
+    [Fact]
+    public async Task ImportAsync_EmptyNickName_ShouldFallBackToUserName()
+    {
+        // 昵称留空：落库昵称回退为用户名
+        var outMs = new MemoryStream();
+        await MiniExcelLibs.MiniExcel.SaveAsAsync(outMs, new List<Dictionary<string, object>>
+        {
+            new() { ["用户名"] = "sunqi", ["昵称"] = "", ["邮箱"] = "", ["手机号"] = "", ["状态(启用/禁用)"] = "启用", ["密码(仅导入,留空用默认密码)"] = "" },
+        }, sheetName: "用户导入模板");
+        var result = await _svc.ImportAsync(new MemoryStream(outMs.ToArray()), 1);
+
+        Assert.Equal(1, result.success);
+        var user = Assert.Single(_db.Queryable<SysUser>().ToList());
+        Assert.Equal("sunqi", user.NickName); // 昵称回退用户名
+        Assert.Null(user.Email);
+        Assert.Null(user.Phone);
+        Assert.Equal(1, user.Status);
+    }
+
+    [Fact]
+    public async Task ExportAsync_DisabledUser_WithNullFields_ShouldRenderDisabledAndEmpty()
+    {
+        // 禁用用户 + 昵称/邮箱为 null：导出状态列转「禁用」，空字段转空串
+        _db.Insertable(new SysUser
+        {
+            Id = 9, UserName = "qianqi", Password = BCrypt.Net.BCrypt.HashPassword("Aa@123456"),
+            NickName = null, Email = null, Phone = null, Status = 0
+        }).ExecuteCommand();
+
+        var bytes = await _svc.ExportAsync();
+        var back = MiniExcelLibs.MiniExcel.Query(new MemoryStream(bytes), true)
+            .Cast<IDictionary<string, object?>>().ToList();
+        string Cell(IDictionary<string, object?> r, string col)
+            => r.TryGetValue(col, out var v) && v != null ? v.ToString()!.Trim() : "";
+        var row = Assert.Single(back, r => Cell(r, "用户名") == "qianqi");
+        Assert.Equal("禁用", Cell(row, "状态(启用/禁用)"));
+        Assert.Equal("", Cell(row, "昵称"));
+        Assert.Equal("", Cell(row, "邮箱"));
     }
 }

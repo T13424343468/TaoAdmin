@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using TaoAdmin.Common.Resilience;
@@ -40,6 +40,30 @@ public class CircuitBreakerMiddlewareTests
         ctx.Response.StatusCode = 200;
         await middleware.InvokeAsync(ctx);
         return ctx.Response.StatusCode;
+    }
+
+    [Fact]
+    public async Task MissingConfigSection_ShouldUseDefaults()
+    {
+        // 能红：配置节缺失必须回退默认选项（若漏判 ?? 会 NullReference）
+        var mw = new CircuitBreakerMiddleware(_ => Task.CompletedTask,
+            new ConfigurationBuilder().Build(), NullLogger<CircuitBreakerMiddleware>.Instance);
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/api/identity/users";
+        await mw.InvokeAsync(ctx);
+        Assert.Equal(200, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCircuitName_ShortPath_ShouldFallbackToPath()
+    {
+        // 能红：路径段不足 2 段必须回退原路径（若越界会 IndexOutOfRange）
+        // 注意：必须以 /api/ 开头才能进 GetCircuitName（非 /api/ 路径在前面就被跳过）
+        var mw = new CircuitBreakerMiddleware(_ => Task.CompletedTask, Config(), NullLogger<CircuitBreakerMiddleware>.Instance);
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/api/";
+        await mw.InvokeAsync(ctx);
+        Assert.Equal(200, ctx.Response.StatusCode);
     }
 
     [Fact]

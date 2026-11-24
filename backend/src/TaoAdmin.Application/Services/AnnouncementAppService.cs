@@ -1,4 +1,4 @@
-using TaoAdmin.Application.Dtos;
+﻿using TaoAdmin.Application.Dtos;
 using TaoAdmin.Common.Http;
 using TaoAdmin.Common.Snowflake;
 using TaoAdmin.Domain;
@@ -63,6 +63,46 @@ public class AnnouncementAppService(ISqlSugarClient db, SnowflakeIdGenerator sno
         row.IsDeleted = true;
         row.UpdatedAt = DateTime.Now;
         await db.Updateable(row).ExecuteCommandAsync();
+    }
+
+    /// <summary>批量删除公告（软删，返回实际删除数）</summary>
+    public async Task<int> BatchDeleteAsync(List<long> ids)
+    {
+        var now = DateTime.Now;
+        return await db.Updateable<SysAnnouncement>()
+            .SetColumns(a => new SysAnnouncement { IsDeleted = true, UpdatedAt = now })
+            .Where(a => ids.Contains(a.Id) && a.IsDeleted == false)
+            .ExecuteCommandAsync();
+    }
+
+    /// <summary>
+    /// 批量上/下线（可容错场景：逐条执行互不影响，单条失败不中断整批，失败明细随返回汇报；上线时补发布时间）。
+    /// 依据老板 2026-11-22 21:07 令：公告上下线各条互相独立，无需事务。
+    /// </summary>
+    public async Task<(int Updated, List<string> Failed)> BatchSetStatusAsync(List<long> ids, bool online)
+    {
+        var now = DateTime.Now;
+        var rows = await db.Queryable<SysAnnouncement>()
+            .Where(a => ids.Contains(a.Id) && a.IsDeleted == false).ToListAsync();
+        var updated = 0;
+        var failed = new List<string>();
+        foreach (var row in rows)
+        {
+            try
+            {
+                row.Status = online ? StatusPublished : StatusOffline;
+                row.UpdatedAt = now;
+                if (online) row.PublishTime = row.PublishTime ?? now;
+                await db.Updateable(row).ExecuteCommandAsync();
+                updated++;
+            }
+            catch (Exception ex)
+            {
+                // 单条失败照常走完剩余条目，失败原因随响应汇报（可容错口径，非静默吞）
+                failed.Add($"{row.Id}: {ex.Message}");
+            }
+        }
+        return (updated, failed);
     }
 
     /// <summary>分页查询（管理端：含已下线；keyword 按标题模糊，总数与明细同口径）</summary>

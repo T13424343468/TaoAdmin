@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace TaoAdmin.Common.Storage;
 
@@ -48,7 +48,7 @@ public class MinioFileStorageProvider : IFileStorageProvider
         var url = $"{_endpoint}/{_bucket}/{objectKey}";
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         SignV4(req, objectKey);
-        using var resp = await _http.SendAsync(req);
+        var resp = await _http.SendAsync(req);
         return resp.IsSuccessStatusCode ? await resp.Content.ReadAsStreamAsync() : null;
     }
 

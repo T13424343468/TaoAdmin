@@ -1,0 +1,141 @@
+{
+  "page": "role",
+  "route": "/system/role",
+  "controlCount": 20,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "新增角色",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "选中全部 4 条",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": true,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": true,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "select",
+      "text": "10 条/页",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

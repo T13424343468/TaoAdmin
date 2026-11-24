@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <a-card title="登录安全" style="max-width: 640px; margin: 0 auto">
     <template #extra><span style="color: #999">保存即生效，无需重启</span></template>
     <a-form layout="vertical" :model="form">
@@ -16,6 +16,10 @@
       </a-form-item>
       <a-form-item label="日志保留天数（0 表示永久保留，0~3650）">
         <a-input-number v-model:value="form.logRetentionDays" :min="0" :max="3650" style="width: 100%" />
+      </a-form-item>
+      <a-form-item label="同账号互踢">
+        <a-switch v-model:checked="form.kickOnDuplicateLogin" checked-children="开" un-checked-children="关" />
+        <span style="margin-left: 8px; color: #999">开启后同一账号新登录会踢掉旧会话，旧页面需重新登录</span>
       </a-form-item>
       <a-form-item>
         <a-button type="primary" :loading="saving" @click="onSave">保存</a-button>
@@ -35,6 +39,7 @@ const form = reactive<LoginSecuritySettings>({
   loginCaptchaRequired: true,
   captchaAfterFails: 0,
   logRetentionDays: 90,
+  kickOnDuplicateLogin: false,
 });
 const saving = ref(false);
 

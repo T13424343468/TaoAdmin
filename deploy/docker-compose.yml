@@ -1,5 +1,4 @@
-﻿version: "3.8"
-
+﻿
 # TaoAdmin 一键编排：先起基础设施（MySQL/Redis/Nacos/ES/Kibana），再起应用服务
 # 使用：docker compose up -d
 # 建议先在 Nacos 控制台导入各服务配置（见 nacos/README.md）
@@ -57,11 +56,12 @@ services:
       retries: 10
 
   nacos:
-    image: nacos/nacos-server:v2.2.3
+    image: nacos/nacos-server:v2.3.2
     container_name: taoadmin-nacos
     environment:
       MODE: standalone
-      SPRING_DATASOURCE_PLATFORM: embedded
+      # 不显式设 SPRING_DATASOURCE_PLATFORM：2.2.3 的 MapperManager 不认 "embedded" 值（errCode 102），
+      # standalone 默认即内嵌 derby 存储
       JVM_XMS: 256m
       JVM_XMX: 512m
     ports:
@@ -110,10 +110,14 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5000
-      - NACOS_HOST=nacos
-      - REDIS_CONN=redis:6379
+      - ReverseProxy__Clusters__identity__Destinations__d1__Address=http://identity:5001/
+      - ReverseProxy__Clusters__task__Destinations__d1__Address=http://task:5002/
+      - Elasticsearch__Uri=http://elasticsearch:9200
     ports:
       - "5000:5000"
+    volumes:
+      # 共享日志卷：与 identity/task 同卷，日志中心可聚合读取（老板反馈⑦）
+      - service-logs:/app/logs
     depends_on:
       nacos:
         condition: service_healthy
@@ -128,23 +132,29 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5001
-      - MYSQL_CONN=Server=mysql;Port=3306;Database=tao_admin;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;
-      - REDIS_CONN=redis:6379
-      - NACOS_HOST=nacos
-      - ES_URL=http://elasticsearch:9200
+      - ConnectionStrings__MySql=Server=mysql;Port=3306;Database=tao_admin;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;SslMode=none;AllowPublicKeyRetrieval=True;
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
+      - Elasticsearch__Uri=http://elasticsearch:9200
       # 消息队列：容器内默认走 RabbitMQ（本地直跑用内存队列，见 appsettings）
       - RabbitMq__Enabled=true
       - RabbitMq__HostName=rabbitmq
       - RabbitMq__UserName=taoadmin
       - RabbitMq__Password=${RABBITMQ_PASSWORD:-Rabbit@2026}
+      # 服务监控探测地址：容器内 localhost 指自身，必须用容器网络地址覆盖（老板反馈⑥，勿用 localhost 探网关/任务）
+      - Monitor__Services__gateway=http://gateway:5000
+      - Monitor__Services__identity=http://localhost:5001
+      - Monitor__Services__task=http://task:5002
+    volumes:
+      # 共享日志卷：三个服务都写 /app/logs，日志中心聚合读取（老板反馈⑦）
+      - service-logs:/app/logs
+    ports:
+      - "5001:5001"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
       nacos:
-        condition: service_healthy
-      elasticsearch:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
@@ -157,16 +167,35 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5002
-      - MYSQL_CONN=Server=mysql;Port=3306;Database=tao_admin;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;
-      - REDIS_CONN=redis:6379
-      - NACOS_HOST=nacos
-      - ES_URL=http://elasticsearch:9200
+      - ConnectionStrings__MySql=Server=mysql;Port=3306;Database=tao_admin;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;SslMode=none;AllowPublicKeyRetrieval=True;
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
+      - Elasticsearch__Uri=http://elasticsearch:9200
+    ports:
+      - "5002:5002"
+    volumes:
+      # 共享日志卷：与 identity/gateway 同卷，日志中心可聚合读取（老板反馈⑦）
+      - service-logs:/app/logs
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
       nacos:
+        condition: service_healthy
+
+  taofiles:
+    build:
+      context: ../../TaoFiles/src/TaoFiles.Api
+      dockerfile: Dockerfile
+    container_name: taoadmin-taofiles
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5003
+      - ConnectionStrings__MySql=Server=mysql;Port=3306;Database=tao_files;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;SslMode=none;AllowPublicKeyRetrieval=True;
+    ports:
+      - "5003:5003"
+    depends_on:
+      mysql:
         condition: service_healthy
 
   frontend:
@@ -184,3 +213,4 @@ volumes:
   redis-data:
   es-data:
   rabbitmq-data:
+  service-logs:

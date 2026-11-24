@@ -63,7 +63,8 @@ public class OperationLogMiddleware(RequestDelegate next, ILogger<OperationLogMi
 
             var user = context.User;
             var isAuthed = user.Identity?.IsAuthenticated == true;
-            var query = context.Request.QueryString.Value ?? "";
+            // IHttpRequestFeature.QueryString 契约非空（DefaultHttpContext 对 null 归一化为 ""），无需空值兜底
+            var query = context.Request.QueryString.Value!;
             var log = new SysOperationLog
             {
                 UserId = isAuthed ? user.GetUserId() : 0,

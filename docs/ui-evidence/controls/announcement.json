@@ -1,0 +1,76 @@
+{
+  "page": "announcement",
+  "route": "/system/announcement",
+  "controlCount": 10,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "查 询",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "重 置",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "发布公告",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "请输入公告标题",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": true,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": true,
+      "checked": false
+    }
+  ]
+}

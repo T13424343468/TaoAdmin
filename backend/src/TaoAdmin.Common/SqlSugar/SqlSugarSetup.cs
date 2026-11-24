@@ -30,7 +30,8 @@ public static class SqlSugarSetup
             var config = new ConnectionConfig
             {
                 ConnectionString = connStr,
-                DbType = SqlSugar.DbType.MySql,
+                DbType = configuration.GetValue<string>("Database:Provider") == "SQLite"
+                    ? SqlSugar.DbType.Sqlite : SqlSugar.DbType.MySql,
                 IsAutoCloseConnection = true,     // 自动释放连接
                 InitKeyType = InitKeyType.Attribute // 按特性（SugarColumn）映射主键
             };

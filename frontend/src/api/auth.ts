@@ -54,11 +54,38 @@ export function login(params: LoginParams): Promise<LoginResult> {
   });
 }
 
+/** 锁屏解锁：复核当前账号登录密码（已登录会话内调用，不重发令牌） */
+export function verifyPassword(password: string): Promise<void> {
+  return request<void>({
+    url: '/identity/auth/verify-password',
+    method: 'post',
+    data: { password },
+  });
+}
+
 /** 获取当前登录用户信息 + 权限码 + 菜单树 */
 export function getUserInfo(): Promise<UserInfo> {
   return request<UserInfo>({
     url: '/identity/auth/userinfo',
     method: 'get',
+  });
+}
+
+/** 忘记密码：申请重置令牌（发到账号绑定邮箱；后端统一提示，不泄露账号是否存在） */
+export function forgotPassword(username: string): Promise<void> {
+  return request<void>({
+    url: '/identity/auth/forgot-password',
+    method: 'post',
+    data: { username },
+  });
+}
+
+/** 重置密码：凭邮箱收到的令牌设置新密码（令牌一次性、15 分钟内有效） */
+export function resetPassword(username: string, token: string, newPassword: string): Promise<void> {
+  return request<void>({
+    url: '/identity/auth/reset-password',
+    method: 'post',
+    data: { username, token, newPassword },
   });
 }
 

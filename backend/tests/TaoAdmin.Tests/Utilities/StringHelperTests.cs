@@ -1,4 +1,4 @@
-using TaoAdmin.Utilities;
+﻿using TaoAdmin.Utilities;
 using Xunit;
 
 namespace TaoAdmin.Tests.Utilities;
@@ -66,6 +66,22 @@ public class StringHelperTests
     [InlineData("sys_user_role", "SysUserRole")]
     public void ToPascalCase_ShouldConvert(string input, string expected)
         => Assert.Equal(expected, input.ToPascalCase());
+
+    [Fact]
+    public void ToPascalCase_EmptySegment_ShouldSkipSegment()
+    {
+        // 能红：Split 产生的空段（首尾下划线）必须原样跳过，不能越界
+        Assert.Equal("UserName", "_user_name_".ToPascalCase());
+    }
+
+    [Fact]
+    public void NotEmpty_WhitespaceAndNull_ShouldReturnFalse()
+    {
+        // 能红：纯空白与 null 都算空（若漏判 IsNullOrWhiteSpace 会误判 true）
+        Assert.False(((string?)null).NotEmpty());
+        Assert.False("   ".NotEmpty());
+        Assert.True("x".NotEmpty());
+    }
 
     [Fact]
     public void Repeat_ShouldRepeatValue()

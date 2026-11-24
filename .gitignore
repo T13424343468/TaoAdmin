@@ -1,13 +1,28 @@
+# ===== .NET =====
 bin/
 obj/
+publish/
+*.user
+*.suo
+
+# ===== Node / 前端 =====
 node_modules/
 dist/
-*.user
+.vite/
+*.local
+
+# ===== 环境与密钥 =====
+.env
+.env.*
+deploy/k8s/secret.yaml
+*.pem
+*.key
+
+# ===== IDE =====
 .vs/
-.bash-outputs/
-.zero_vacuum/
-test-avatar.png
-deploy/publish/
-deploy/run/
-deploy/backups/
-deploy/ops/
+.vscode/
+.idea/
+
+# ===== 其他 =====
+logs/
+*.log

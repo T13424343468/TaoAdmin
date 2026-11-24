@@ -1,4 +1,4 @@
-using TaoAdmin.Common.Auth;
+﻿using TaoAdmin.Common.Auth;
 using Xunit;
 
 namespace TaoAdmin.Tests.Auth;
@@ -95,5 +95,25 @@ public class OnlineSessionStoreTests
         Assert.True(store.Find("s1")!.LastActiveTime > before);
         // 不存在的会话 Touch 不抛错
         store.Touch("missing");
+    }
+
+    [Fact]
+    public void ExpiredRevocation_ShouldBePrunedAfterTokenLifetime()
+    {
+        // 能红：吊销记录超过一个令牌周期必须被清出（若漏判会内存泄漏且语义含糊）
+        var store = new OnlineSessionStore(tokenLifetimeMinutes: 1);
+        store.Register(NewSession("r1"));
+        store.Revoke("r1");
+        Assert.True(store.IsRevoked("r1"));
+
+        // 吊销记录时间无法直接改（内部字典），走真实时钟：等 61 秒太久，改用反射验证内部结构
+        var revokedField = typeof(OnlineSessionStore).GetField("_revoked",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(revokedField);
+        var revoked = (System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>)revokedField!.GetValue(store)!;
+        revoked["r1"] = DateTime.Now.AddMinutes(-2); // 吊销时间改到 2 分钟前
+
+        store.List(); // 触发清理
+        Assert.False(store.IsRevoked("r1")); // 过期吊销记录已被清出
     }
 }

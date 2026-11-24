@@ -1,0 +1,196 @@
+{
+  "page": "user",
+  "route": "/system/user",
+  "controlCount": 28,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "查 询",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "重 置",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "展开",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "新增用户",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "导出",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "导入",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "选中全部 5 条",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": true,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": true,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": "请输入用户名",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "input",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "select",
+      "text": "10 条/页",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

@@ -30,6 +30,9 @@ public class SnowflakeIdGenerator
     private long _lastTimestamp = -1L;
     private long _sequence;
 
+    /// <summary>时钟源（内部可注入，供测试模拟时钟回拨；生产恒为 UtcNow）</summary>
+    internal Func<long> TimeSource { get; set; } = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
     public long WorkerId { get; }
     public long DatacenterId { get; }
 
@@ -82,13 +85,13 @@ public class SnowflakeIdGenerator
 
     private static long WaitNextMillis(long lastTimestamp)
     {
-        var timestamp = CurrentTimeMillis();
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         while (timestamp <= lastTimestamp)
         {
-            timestamp = CurrentTimeMillis();
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         }
         return timestamp;
     }
 
-    private static long CurrentTimeMillis() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    private long CurrentTimeMillis() => TimeSource();
 }

@@ -1,0 +1,94 @@
+{
+  "page": "monitor-online",
+  "route": "/monitor/online",
+  "controlCount": 13,
+  "controls": [
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "🌙",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "button",
+      "text": "刷新",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "on",
+      "placeholder": null,
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    },
+    {
+      "kind": "checkbox",
+      "text": "",
+      "disabled": false,
+      "checked": false
+    }
+  ]
+}

@@ -9,7 +9,7 @@
 #     taoadmin-identity
 
 # ---------------- 构建阶段 ----------------
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # 先复制工程文件以利用 Docker 层缓存还原依赖
@@ -20,10 +20,10 @@ RUN dotnet restore "src/TaoAdmin.IdentityService/TaoAdmin.IdentityService.csproj
 # 复制全部源码并发布
 COPY . .
 WORKDIR /src/src/TaoAdmin.IdentityService
-RUN dotnet publish -c Release -o /app/publish --no-restore
+RUN dotnet publish -c Release -o /app/publish
 
 # ---------------- 运行阶段 ----------------
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 5001
