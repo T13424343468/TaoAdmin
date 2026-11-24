@@ -62,6 +62,18 @@ public class ApiEndpointScannerTests
         public string NoHttp() => ""; // 无 HTTP 特性：不进扫描结果
     }
 
+    private sealed class BareController : ControllerBase // 无 Route 特性：controllerRoute 走空串分支
+    {
+        [HttpGet("bare")] // 无模板段外的控制器路由，JoinPath 空路由分支
+        [Permission("bare:get")]
+        public string Get() => "";
+
+        [AcceptVerbs("PUT")] // AcceptVerbs 单方法，模板为空 → JoinPath(空路由, 空模板)
+        [Route("bare-put")]
+        [Permission("bare:put")]
+        public string Put() => "";
+    }
+
     private sealed class EmptyController : ControllerBase { }
 
     [Fact]
@@ -81,6 +93,17 @@ public class ApiEndpointScannerTests
         Assert.Contains(endpoints, e => e.HttpMethod == "PATCH" && e.Path == "/api/demo/patch");
         Assert.Contains(endpoints, e => e.HttpMethod == "GET" && e.Path == "/api/demo"); // AcceptVerbs 取首个，空模板并入控制器路由
         Assert.DoesNotContain(endpoints, e => e.Path == "/api/demo/no-perm");
+
+        // 无 Route 特性控制器：JoinPath 空控制器路由分支（actionTemplate 非空 → 直接返回模板）
+        var bareAll = string.Join(",", endpoints.Select(e => $"{e.HttpMethod}:{e.Path}"));
+        var bare = endpoints.FirstOrDefault(e => e.Path.EndsWith("bare"));
+        Assert.True(bare != null, $"bare 端点未找到，实际端点：{bareAll}");
+        Assert.Equal("GET", bare!.HttpMethod);
+        // AcceptVerbs 单方法：HttpInfo 恒返回空模板 → JoinPath(空路由, "") 返回 controllerRoute（Route 特性的 "bare-put" 不参与）
+        var barePut = endpoints.FirstOrDefault(e => e.PermsCode == "bare:put");
+        Assert.NotNull(barePut);
+        Assert.Equal("PUT", barePut!.HttpMethod);
+        Assert.Equal("/", barePut.Path); // 空路由 + 空模板 → JoinPath 返回空串，外层拼 "/" 前缀
     }
 
     [Fact]
