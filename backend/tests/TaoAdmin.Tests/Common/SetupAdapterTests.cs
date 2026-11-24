@@ -164,6 +164,52 @@ public class ReadWriteExtensionsTests
         Assert.True(result); // 回调内已禁用分离（强制主库）
         Assert.Equal(before, db.Ado.IsDisableMasterSlaveSeparation); // 回调后恢复
     }
+
+    [Fact]
+    public void ForceMaster_无返回值_回调内禁用_回调后恢复()
+    {
+        var db = new SqlSugarScope(new SqlSugar.ConnectionConfig
+        {
+            ConnectionString = "DataSource=:memory:",
+            DbType = SqlSugar.DbType.Sqlite,
+            IsAutoCloseConnection = false
+        });
+        var before = db.Ado.IsDisableMasterSlaveSeparation;
+        var seen = false;
+        db.ForceMaster(() => { seen = db.Ado.IsDisableMasterSlaveSeparation; });
+        Assert.True(seen); // 回调内已禁用分离
+        Assert.Equal(before, db.Ado.IsDisableMasterSlaveSeparation); // 回调后恢复
+    }
+
+    [Fact]
+    public void ForceMaster_无返回值_回调抛异常_仍恢复原值()
+    {
+        var db = new SqlSugarScope(new SqlSugar.ConnectionConfig
+        {
+            ConnectionString = "DataSource=:memory:",
+            DbType = SqlSugar.DbType.Sqlite,
+            IsAutoCloseConnection = false
+        });
+        var ex = Record.Exception(() =>
+            db.ForceMaster((Action)(() => throw new InvalidOperationException("boom"))));
+        Assert.IsAssignableFrom<InvalidOperationException>(ex);
+        Assert.False(db.Ado.IsDisableMasterSlaveSeparation); // finally 恢复，不残留禁用态
+    }
+
+    [Fact]
+    public void ForceMaster_带返回值_回调抛异常_仍恢复原值()
+    {
+        var db = new SqlSugarScope(new SqlSugar.ConnectionConfig
+        {
+            ConnectionString = "DataSource=:memory:",
+            DbType = SqlSugar.DbType.Sqlite,
+            IsAutoCloseConnection = false
+        });
+        var ex = Record.Exception(() =>
+            db.ForceMaster<object?>(() => throw new InvalidOperationException("boom")));
+        Assert.IsAssignableFrom<InvalidOperationException>(ex);
+        Assert.False(db.Ado.IsDisableMasterSlaveSeparation);
+    }
 }
 
 /// <summary>文件存储配置：默认值与属性赋值。</summary>

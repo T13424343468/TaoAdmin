@@ -71,25 +71,32 @@ public class RabbitMqMessageQueue : IMessageQueue, IDisposable
         await ch.QueueDeclareAsync(queue, durable: true, exclusive: false, autoDelete: false, cancellationToken: ct);
         var consumer = new AsyncEventingBasicConsumer(ch);
         consumer.ReceivedAsync += async (_, ea) =>
-        {
-            try
-            {
-                var msg = new MessageEnvelope
-                {
-                    MessageId = ea.BasicProperties.MessageId ?? Guid.NewGuid().ToString("N"),
-                    Topic = topic,
-                    Body = System.Text.Encoding.UTF8.GetString(ea.Body.ToArray())
-                };
-                await onMessage(msg);
-                await ch.BasicAckAsync(ea.DeliveryTag, false);
-            }
-            catch (Exception ex)
-            {
-                Serilog.Log.Error(ex, "RabbitMQ 消息处理失败 topic={Topic}", topic);
-                await ch.BasicNackAsync(ea.DeliveryTag, false, requeue: false); // 进入死信，避免无限重投
-            }
-        };
+            await HandleDeliveryAsync(ch, ea, topic, onMessage);
         await ch.BasicConsumeAsync(queue, autoAck: false, consumer, cancellationToken: ct);
+    }
+
+    /// <summary>
+    /// 单条投递的处理逻辑（抽出以便实效测试）：成功回调后 Ack；回调抛异常则记日志并 Nack 进死信（不重投）。
+    /// </summary>
+    internal static async Task HandleDeliveryAsync(
+        IChannel ch, BasicDeliverEventArgs ea, string topic, Func<MessageEnvelope, Task> onMessage)
+    {
+        try
+        {
+            var msg = new MessageEnvelope
+            {
+                MessageId = ea.BasicProperties.MessageId ?? Guid.NewGuid().ToString("N"),
+                Topic = topic,
+                Body = System.Text.Encoding.UTF8.GetString(ea.Body.ToArray())
+            };
+            await onMessage(msg);
+            await ch.BasicAckAsync(ea.DeliveryTag, false);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "RabbitMQ 消息处理失败 topic={Topic}", topic);
+            await ch.BasicNackAsync(ea.DeliveryTag, false, requeue: false); // 进入死信，避免无限重投
+        }
     }
 
     public void Dispose()

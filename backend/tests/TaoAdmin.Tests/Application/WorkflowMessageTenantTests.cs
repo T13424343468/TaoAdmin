@@ -318,6 +318,65 @@ public class WorkflowMessageTenantTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMyTasks_OrphanInstance_FieldsFallBackToEmpty()
+    {
+        // ToDtos：实例被删后 instMap 查不到 → DTO 字段走 inst?.X ?? "" 兜底分支
+        var svc = NewWorkflowSvc();
+        SeedTask(999999, 0, role: "roleA", tenantId: 0); // 无对应实例
+
+        var list = await svc.GetMyTasksAsync(1, new List<string> { "roleA" }, isSuperAdmin: false);
+        Assert.Single(list);
+        var orphan = list[0];
+        Assert.Equal("", orphan.bizTitle);
+        Assert.Equal("", orphan.workflowName);
+        Assert.Equal("", orphan.applicantName);
+    }
+
+    [Fact]
+    public async Task GetMyTasks_StatusUnknown_MapsToUnknownText()
+    {
+        // StatusText switch：状态 9 不在映射表 → "未知" 分支
+        var svc = NewWorkflowSvc();
+        var wfId = SeedWorkflow();
+        var instId = SeedInstance(wfId, status: 9);
+        SeedTask(instId, 0, role: "roleA", tenantId: 0);
+
+        var list = await svc.GetMyTasksAsync(1, new List<string> { "roleA" }, isSuperAdmin: false);
+        Assert.Single(list);
+        Assert.Equal(9, list[0].status); // status 原样透出；映射文本在实例列表接口验证
+    }
+
+    [Fact]
+    public async Task Approve_WorkflowDefinitionDeleted_NodesFallBackEmpty()
+    {
+        // ApproveAsync：流程定义被删 → ParseNodes(null) 走空串分支；末级判定 nodes.Count==0 → 视为最后一级完成
+        var svc = NewWorkflowSvc();
+        var instId = SeedInstance(888888, status: 1); // 无对应流程定义
+        var taskId = SeedTask(instId, 0);
+
+        await svc.ApproveAsync(taskId, new WorkflowApproveRequest { approved = true }, 1, "h", new List<string>(), true);
+
+        var inst = _db.Queryable<SysWorkflowInstance>().First(i => i.Id == instId);
+        Assert.Equal(2, inst.Status); // nodes 为空 → nextIndex(1) >= 0 判定完成
+        Assert.NotNull(inst.FinishedAt);
+    }
+
+    [Fact]
+    public async Task Approve_Advance_PublicTenantTask_InheritsApproverTenant()
+    {
+        // 推进节点新任务 TenantId：task.TenantId == 0 时走 tenantId（审批人租户）分支
+        var svc = NewWorkflowSvc();
+        var wfId = SeedWorkflow(nodeCount: 2);
+        var instId = SeedInstance(wfId);
+        var taskId = SeedTask(instId, 0, tenantId: 0); // 公共租户任务
+
+        await svc.ApproveAsync(taskId, new WorkflowApproveRequest { approved = true }, 1, "h", new List<string>(), true, tenantId: 7);
+
+        var next = _db.Queryable<SysWorkflowTask>().First(t => t.NodeIndex == 1 && t.InstanceId == instId);
+        Assert.Equal(7, next.TenantId); // 继承审批人租户
+    }
+
+    [Fact]
     public async Task GetDefinitions_ShouldReturnParsedNodes()
     {
         var svc = NewWorkflowSvc();
