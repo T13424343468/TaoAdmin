@@ -335,15 +335,12 @@ public class WorkflowMessageTenantTests : IDisposable
     [Fact]
     public async Task GetMyTasks_StatusUnknown_MapsToUnknownText()
     {
-        // StatusText switch：状态 9 不在映射表 → "未知" 分支
+        // StatusText switch：状态 9 不在映射表 → "未知" 分支（经详情接口的 statusText 透出）
         var svc = NewWorkflowSvc();
-        var wfId = SeedWorkflow();
-        var instId = SeedInstance(wfId, status: 9);
-        SeedTask(instId, 0, role: "roleA", tenantId: 0);
+        var instId = SeedInstance(888888, status: 9); // 无对应流程定义，走孤儿实例路径
 
-        var list = await svc.GetMyTasksAsync(1, new List<string> { "roleA" }, isSuperAdmin: false);
-        Assert.Single(list);
-        Assert.Equal(9, list[0].status); // status 原样透出；映射文本在实例列表接口验证
+        var (dto, tasks) = await svc.GetDetailAsync(instId);
+        Assert.Equal("未知", dto.statusText); // 状态 9 不在映射表 → 未知
     }
 
     [Fact]
