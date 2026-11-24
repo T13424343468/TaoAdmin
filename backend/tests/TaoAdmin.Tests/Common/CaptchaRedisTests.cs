@@ -93,7 +93,7 @@ public class RedisHelperTests
 
     private static bool SetHash(FakeDb state, object?[] args)
     {
-        state.Hash[args![1]!.ToString()] = args[2]!.ToString();
+        state.Hash[args![1]!.ToString()!] = args[2]!.ToString()!;
         return true;
     }
 
@@ -130,9 +130,9 @@ public class RedisHelperTests
             nameof(IDatabase.KeyDelete) => AddKeys(state, args!),
             nameof(IDatabase.KeyExists) => state.Exists,
             nameof(IDatabase.KeyExpire) => SetTtl(state, args!),
-            nameof(IDatabase.HashGet) => state.Hash.TryGetValue(args![1]!.ToString(), out var v) ? (RedisValue)v : RedisValue.Null,
+            nameof(IDatabase.HashGet) => state.Hash.TryGetValue(args![1]!.ToString()!, out var v) ? (RedisValue)v : RedisValue.Null,
             nameof(IDatabase.HashSet) => SetHash(state, args!),
-            nameof(IDatabase.HashDelete) => state.Hash.Remove(args![1]!.ToString()),
+            nameof(IDatabase.HashDelete) => state.Hash.Remove(args![1]!.ToString()!),
             nameof(IDatabase.HashGetAll) => state.Hash.Select(kv => new HashEntry(kv.Key, kv.Value)).ToArray(),
             _ => method.ReturnType == typeof(bool) ? false : null
         });

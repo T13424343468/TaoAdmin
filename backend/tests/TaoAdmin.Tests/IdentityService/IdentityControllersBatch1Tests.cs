@@ -191,6 +191,6 @@ public class IdentityControllersBatch1Tests
         var batch = controller.BatchKick(new BatchKickRequest { sessionIds = new List<string> { "s2", "s3", "ghost", "ghost" } });
         Assert.True(batch.Success);
         Assert.Contains("批量下线完成", batch.Message);
-        Assert.Equal(0, sessions.List().Count);
+        Assert.Empty(sessions.List());
     }
 }

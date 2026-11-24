@@ -101,7 +101,7 @@ public class FileAppServiceGapTests : IDisposable
         Assert.False(string.IsNullOrEmpty(page1.NextCursor)); // 满页才发游标
 
         var page2 = await svc.PageAsync(1, 2, null, cursor: page1.NextCursor);
-        Assert.Equal(1, page2.Items.Count);
+        Assert.Single(page2.Items);
         Assert.Null(page2.NextCursor); // 末页无下一页游标
         // 游标真实生效：两页不重复、合计覆盖全部记录
         Assert.DoesNotContain(page2.Items, f => page1.Items.Any(p => p.Id == f.Id));
@@ -203,7 +203,7 @@ public class FileAppServiceGapTests : IDisposable
     {
         var (svc, _) = Create();
         await Assert.ThrowsAsync<DomainException>(() =>
-            svc.UploadAsync(Bytes(1), null, "image/png", 1, "admin"));
+            svc.UploadAsync(Bytes(1), null!, "image/png", 1, "admin"));
         await Assert.ThrowsAsync<DomainException>(() =>
             svc.UploadAsync(Bytes(1), "   ", "image/png", 1, "admin"));
     }

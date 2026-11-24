@@ -41,7 +41,7 @@ internal class LooseProxy : DispatchProxy
 public class HeartbeatJobTests
 {
     [Fact]
-    public void Execute_ShouldWriteHeartbeatKey_WithTenMinuteTtl()
+    public async Task Execute_ShouldWriteHeartbeatKey_WithTenMinuteTtl()
     {
         string? writtenKey = null, writtenValue = null;
         object? writtenExpiry = null;
@@ -61,7 +61,7 @@ public class HeartbeatJobTests
             method.Name == nameof(IConnectionMultiplexer.GetDatabase) ? database : null);
 
         var job = new HeartbeatJob(new RedisHelper(multiplexer));
-        job.Execute(TestJobContext.Create("heartbeatJob")).Wait();
+        await job.Execute(TestJobContext.Create("heartbeatJob"));
 
         Assert.Equal("heartbeat:heartbeatJob", writtenKey);
         Assert.True(Equals((Expiration)TimeSpan.FromMinutes(10), writtenExpiry), $"TTL 应为 10 分钟，实际 {writtenExpiry}");

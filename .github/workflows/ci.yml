@@ -101,6 +101,9 @@ jobs:
           test "$CODE" = 200
           # 业务码也必须 200 且拿到 token（此前只验 HTTP 码，登录业务失败也放行=假绿）
           python3 -c "import json;d=json.load(open('/tmp/login.json'));assert int(d['code'])==200 and d['data'] and d['data']['token'],d;print('login business ok')"
+          # 验证码接口回归（v26 真机盲区）：匿名可取且返回 captchaId/svg，AuditController 六项依赖缺一即 500
+          curl -sf http://127.0.0.1:5000/api/identity/audit/captcha -o /tmp/captcha.json
+          python3 -c "import json;d=json.load(open('/tmp/captcha.json'));assert int(d['code'])==200 and d['data']['captchaId'] and d['data']['svg'],d;print('captcha ok')"
 
       - name: Pagination real-machine verification (cursor + cache + indexes)
         run: |

@@ -130,13 +130,13 @@ public class RedisLockoutDatabaseAdapterTests
 {
     private static bool SetStore(State state, object?[] args)
     {
-        state.Store[args![0]!.ToString()] = args[1]!.ToString();
+        state.Store[args![0]!.ToString()!] = args[1]!.ToString()!;
         return true;
     }
 
     private static bool SetTtl(State state, object?[] args)
     {
-        state.Ttls[args![0]!.ToString()] = (TimeSpan)args[1]!;
+        state.Ttls[args![0]!.ToString()!] = (TimeSpan)args[1]!;
         return true;
     }
 
@@ -153,9 +153,9 @@ public class RedisLockoutDatabaseAdapterTests
         var state = new State();
         var db = LooseProxy.Of<IDatabase>((method, args) => method!.Name switch
         {
-            nameof(IDatabase.StringGet) => state.Store.TryGetValue(args![0]!.ToString(), out var v) ? (RedisValue)v : RedisValue.Null,
-            nameof(IDatabase.StringIncrement) => state.Counters[args![0]!.ToString()] =
-                state.Counters.TryGetValue(args[0]!.ToString(), out var c) ? c + 1 : 1,
+            nameof(IDatabase.StringGet) => state.Store.TryGetValue(args![0]!.ToString()!, out var v) ? (RedisValue)v : RedisValue.Null,
+            nameof(IDatabase.StringIncrement) => state.Counters[args![0]!.ToString()!] =
+                state.Counters.TryGetValue(args[0]!.ToString()!, out var c) ? c + 1 : 1,
             nameof(IDatabase.StringSet) => SetStore(state, args!),
             nameof(IDatabase.KeyExpire) => SetTtl(state, args!),
             _ => method.ReturnType == typeof(bool) ? false : (object?)null

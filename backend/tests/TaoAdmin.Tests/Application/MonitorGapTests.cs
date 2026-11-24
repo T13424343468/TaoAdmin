@@ -54,7 +54,11 @@ public class MonitorAppServiceGapTests : IDisposable
                     using var client = await listener.AcceptTcpClientAsync();
                     using var stream = client.GetStream();
                     var buf = new byte[4096];
-                    await stream.ReadAsync(buf);
+                    int read;
+                    while ((read = await stream.ReadAsync(buf)) > 0)
+                    {
+                        break; // 收到请求即应答，读尽返回值满足 CA2022
+                    }
                     var resp = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
                     await stream.WriteAsync(resp);
                 }
