@@ -45,12 +45,14 @@ public class OperationLogAppServiceTests : IDisposable
 
     private OperationLogAppService NewSvc() => new(_db, _cache);
 
+    private static readonly SnowflakeIdGenerator IdGen = new(1, 1);
+
     private long SeedLog(string category = "operation", string userName = "tao", int success = 1,
         DateTime? createdAt = null, string path = "/api/x")
     {
         var log = new SysOperationLog
         {
-            Id = new SnowflakeIdGenerator(1, 1).NextId(),
+            Id = IdGen.NextId(),
             UserId = 1, UserName = userName, Category = category, Method = "POST",
             Path = path, StatusCode = 200, Success = success, CreatedAt = createdAt ?? DateTime.Now
         };

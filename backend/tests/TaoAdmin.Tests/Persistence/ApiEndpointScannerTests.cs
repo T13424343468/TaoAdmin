@@ -44,7 +44,12 @@ public class ApiEndpointScannerTests
 
         Assert.True(ok);
         Assert.Null(failed);
-        // 无控制器动作可扫：不产生接口记录
-        Assert.Equal(0, db.Queryable<TaoAdmin.Domain.Entities.SysApi>().Count());
+        // 测试程序集含带路由特性的控制器测试类时同步其接口；重复扫描幂等，记录数不翻倍
+        var first = db.Queryable<TaoAdmin.Domain.Entities.SysApi>().Count();
+        var ok2 = ApiEndpointScanner.TrySyncApis(db, new SnowflakeIdGenerator(1, 1),
+            ex => failed = ex, typeof(ApiEndpointScannerTests).Assembly);
+        Assert.True(ok2);
+        Assert.Null(failed);
+        Assert.Equal(first, db.Queryable<TaoAdmin.Domain.Entities.SysApi>().Count());
     }
 }
