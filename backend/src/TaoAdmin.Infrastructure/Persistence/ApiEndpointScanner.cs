@@ -22,6 +22,26 @@ public record ApiEndpointInfo(string Name, string Path, string HttpMethod, strin
 public static class ApiEndpointScanner
 {
     /// <summary>
+    /// 带兜底的启动同步：建 SysApi 表 + 增量扫描，失败只回调告警不阻塞启动
+    /// （IdentityService 初始化中，下次启动补登）。返回是否同步成功。
+    /// </summary>
+    public static bool TrySyncApis(ISqlSugarClient db, SnowflakeIdGenerator snowflake,
+        Action<Exception> onFailed, params Assembly[] targetAssemblies)
+    {
+        try
+        {
+            db.CodeFirst.InitTables<SysApi>();
+            SyncApis(db, snowflake, targetAssemblies);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            onFailed(ex);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 增量同步接口资源：扫描 → 与库内现存记录对账 → 补录新增 / 停用消失。
     /// 幂等：重复调用只补差异。目标程序集由各服务启动时传入（自身控制器程序集），
     /// 避免基础设施层反向依赖服务层造成循环引用。

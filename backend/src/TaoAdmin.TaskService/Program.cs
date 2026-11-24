@@ -130,15 +130,9 @@ using (var scope = app.Services.CreateScope())
     db.CodeFirst.InitTables(typeof(SysJob), typeof(SysJobLog),
         typeof(TaoAdmin.Domain.Entities.SysAlertRule), typeof(TaoAdmin.Domain.Entities.SysNotifyLog));
     // 库表与种子由 IdentityService 统一初始化；本服务只保证接口扫描可用，失败不阻塞启动
-    try
-    {
-        db.CodeFirst.InitTables(typeof(TaoAdmin.Domain.Entities.SysApi));
-        ApiEndpointScanner.SyncApis(db, scope.ServiceProvider.GetRequiredService<SnowflakeIdGenerator>(), typeof(Program).Assembly);
-    }
-    catch (Exception ex)
-    {
-        Log.Logger.Warning(ex, "TaskService 接口扫描初始化失败（IdentityService 初始化中，下次启动补登）");
-    }
+    ApiEndpointScanner.TrySyncApis(db, scope.ServiceProvider.GetRequiredService<SnowflakeIdGenerator>(),
+        ex => Log.Logger.Warning(ex, "TaskService 接口扫描初始化失败（IdentityService 初始化中，下次启动补登）"),
+        typeof(Program).Assembly);
     if (db.Queryable<SysJob>().Count() == 0)
     {
         await db.Insertable(new SysJob
@@ -158,3 +152,9 @@ using (var scope = app.Services.CreateScope())
 
 Log.Logger.Information("TaoAdmin.TaskService 启动，端口 5002");
 app.Run();
+
+/// <summary>测试入口钩子：供 WebApplicationFactory 探针启动本服务（不改变运行行为）。</summary>
+public partial class Program { }
+
+/// <summary>探针定位标记：三个服务程序集的 Program 同名，测试用本类型唯一指定 TaskService 程序集。</summary>
+public sealed class TaskServiceProbe { }

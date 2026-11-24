@@ -64,4 +64,12 @@ public class DateTimeHelperTests
         Assert.StartsWith("昨天 ", DateTime.Now.AddHours(-30).ToRelativeText());
         Assert.Matches(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", DateTime.Now.AddDays(-10).ToRelativeText());
     }
+
+    [Fact]
+    public void Format_ShouldRenderWithGivenOrFullFormat()
+    {
+        var t = new DateTime(2026, 11, 23, 8, 5, 3);
+        Assert.Equal("2026-11-23 08:05:03", t.Format()); // 缺省走 FullFormat
+        Assert.Equal("2026-11-23", t.Format(DateTimeHelper.ShortFormat));
+    }
 }

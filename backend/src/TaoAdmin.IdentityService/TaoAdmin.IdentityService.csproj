@@ -29,4 +29,9 @@
     <ProjectReference Include="..\TaoAdmin.Utilities\TaoAdmin.Utilities.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 测试工程可访问 internal 成员（如资源监控的采样入口与配置读取） -->
+    <InternalsVisibleTo Include="TaoAdmin.Tests" />
+  </ItemGroup>
+
 </Project>

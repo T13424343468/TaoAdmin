@@ -13,6 +13,7 @@ namespace TaoAdmin.Tests.Application;
 /// 日志过滤三路（级别/服务/关键字，含大小写不敏感与不匹配剔除）、
 /// 文件名回退服务来源、目录不存在、翻页越界。
 /// </summary>
+[Collection("LogDirFallback")]
 public class MonitorAppServiceGapTests : IDisposable
 {
     private readonly string _dir;
@@ -201,7 +202,16 @@ public class MonitorAppServiceGapTests : IDisposable
         }
         finally
         {
-            Directory.Delete(defaultDir, true);
+            // 尽力清理：探针宿主的静态 Serilog 文件槽可能仍持有 logs/ 下文件（共享句柄），
+            // 容器盘上整目录删除可能因残留句柄失败，逐文件删除、目录删除失败可容忍
+            if (Directory.Exists(defaultDir))
+            {
+                foreach (var f in Directory.GetFiles(defaultDir))
+                {
+                    try { File.Delete(f); } catch (IOException) { }
+                }
+                try { Directory.Delete(defaultDir, true); } catch (IOException) { }
+            }
         }
     }
 
