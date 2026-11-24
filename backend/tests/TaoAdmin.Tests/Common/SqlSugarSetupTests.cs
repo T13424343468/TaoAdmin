@@ -166,4 +166,56 @@ public class SqlSugarSetupTests
         Assert.True(seeded);
         Assert.Equal(0, db.Queryable<TenantRow>().Count()); // 表已建
     }
+
+    /// <summary>Serilog 内存收集器：断言日志级别与渲染内容，防假绿。</summary>
+    private class CollectingSink : Serilog.Core.ILogEventSink
+    {
+        public List<Serilog.Events.LogEvent> Events { get; } = new();
+        public void Emit(Serilog.Events.LogEvent logEvent) => Events.Add(logEvent);
+    }
+
+    [Fact]
+    public void AOP_慢SQL告警阈值两侧与执行异常日志_实效()
+    {
+        var sink = new CollectingSink();
+        var sinkLogger = new Serilog.LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        // 生产 AOP 经 Log.ForContext 取全局日志器，测试期临时接管，结束还原
+        var original = Serilog.Log.Logger;
+        Serilog.Log.Logger = sinkLogger;
+        var (sp, db) = Build(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:MySql"] = SharedMemDb(),
+            ["Database:Provider"] = "SQLite"
+        });
+        using var _ = sp;
+        try
+        {
+            // 超过 1 秒：写慢SQL告警
+            SqlSugarSetup.WarnSlowSql(sinkLogger, TimeSpan.FromSeconds(2), "SELECT SLEEP(2)");
+            Assert.Contains(sink.Events, e => e.Level == Serilog.Events.LogEventLevel.Warning
+                                              && e.RenderMessage().Contains("慢SQL"));
+
+            // 未超阈值：不告警（慢SQL告警计数不增）
+            var warnings = sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning
+                                                  && e.RenderMessage().Contains("慢SQL"));
+            SqlSugarSetup.WarnSlowSql(sinkLogger, TimeSpan.FromMilliseconds(200), "SELECT 1");
+            Assert.Equal(warnings, sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning
+                                                          && e.RenderMessage().Contains("慢SQL")));
+
+            // AOP 异常委托走真实执行路径触发：无效 SQL → OnError 记录异常（含 SQL 原文）
+            var ex = Record.Exception(() => db.Ado.ExecuteCommand("SELECT * FROM no_such_table__x"));
+            Assert.NotNull(ex);
+            Assert.Contains(sink.Events, e => e.Level == Serilog.Events.LogEventLevel.Error
+                                              && e.RenderMessage().Contains("no_such_table__x"));
+
+            // AOP 执行完成委托走真实执行路径触发（耗时未超阈值，不告警不抛）
+            db.Ado.ExecuteCommand("SELECT 1");
+            Assert.Equal(warnings, sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning
+                                                          && e.RenderMessage().Contains("慢SQL")));
+        }
+        finally
+        {
+            Serilog.Log.Logger = original;
+        }
+    }
 }

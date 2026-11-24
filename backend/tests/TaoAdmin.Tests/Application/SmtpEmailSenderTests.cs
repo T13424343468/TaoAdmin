@@ -346,4 +346,115 @@ public class SmtpEmailSenderTests
         Assert.Contains("250-second", response);
         Assert.Contains("250 last", response);
     }
+
+    // ---------------- 默认连接/默认TLS升级：本机回环真实 TCP/TLS ----------------
+
+    private static SqlSugarClient RealDb(int port)
+    {
+        var db = new SqlSugarClient(new ConnectionConfig
+        {
+            ConnectionString = "DataSource=:memory:",
+            DbType = SqlSugar.DbType.Sqlite,
+            IsAutoCloseConnection = false
+        });
+        db.CodeFirst.InitTables<SysSiteConfig>();
+        long id = 1;
+        foreach (var kv in new Dictionary<string, string>
+        {
+            ["notify_smtp_host"] = "127.0.0.1",
+            ["notify_smtp_port"] = port.ToString(),
+            ["notify_smtp_from"] = "noreply@tao.dev"
+        })
+        {
+            db.Insertable(new SysSiteConfig { Id = id++, ConfigKey = kv.Key, ConfigValue = kv.Value })
+                .ExecuteCommand();
+        }
+        return db;
+    }
+
+    private static async Task DrainLinesAsync(Stream stream, int count)
+    {
+        var buf = new byte[1];
+        for (var i = 0; i < count; i++)
+        {
+            while (true)
+            {
+                var n = await stream.ReadAsync(buf);
+                if (n == 0) throw new InvalidOperationException("测试服务端读关闭");
+                if (buf[0] == '\n') break;
+            }
+        }
+    }
+
+    private static async Task WriteLinesAsync(Stream stream, params string[] lines)
+    {
+        foreach (var line in lines)
+        {
+            var bytes = Encoding.ASCII.GetBytes(line + "\r\n");
+            await stream.WriteAsync(bytes);
+            await stream.FlushAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SendAsync_默认连接工厂_本机回环真实TCP_应成功()
+    {
+        // 不注入 connect 工厂 → 走 DefaultConnectAsync（真实 TcpClient 连接）
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            var stream = client.GetStream();
+            await WriteLinesAsync(stream, "220 loopback ready", "250 ehlo ok",
+                "250 from", "250 to", "354 data", "250 accepted", "221 bye");
+            try { await DrainLinesAsync(stream, 7); } catch { /* 客户端先关 */ }
+        });
+
+        var (ok, msg) = await new SmtpEmailSender(RealDb(port))
+            .SendAsync("admin@tao.dev", "回环", "正文");
+
+        await server.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(ok, msg);
+    }
+
+    [Fact]
+    public async Task SendAsync_服务端通告STARTTLS_默认TLS升级_本机回环真实握手_应成功()
+    {
+        // 不注入 tlsUpgrade → STARTTLS 协商后走 DefaultTlsUpgradeAsync（真实 SslStream 握手）
+        using var cert = CreateSelfSigned();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            var raw = client.GetStream();
+            await WriteLinesAsync(raw, "220 loopback ready", "250-mx\r\n250-STARTTLS\r\n250 SIZE 10485760");
+            await DrainLinesAsync(raw, 1);  // 吃掉 EHLO
+            await WriteLinesAsync(raw, "220 go");
+            await DrainLinesAsync(raw, 1);  // 吃掉 STARTTLS 命令
+            using var ssl = new System.Net.Security.SslStream(raw, false);
+            await ssl.AuthenticateAsServerAsync(cert);
+            await WriteLinesAsync(ssl, "250 from", "250 to", "354 data", "250 accepted", "221 bye");
+            try { await DrainLinesAsync(ssl, 5); } catch { /* 客户端先关 */ }
+        });
+
+        var (ok, msg) = await new SmtpEmailSender(RealDb(port))
+            .SendAsync("admin@tao.dev", "回环TLS", "正文");
+
+        await server.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(ok, msg);
+    }
+
+    private static System.Security.Cryptography.X509Certificates.X509Certificate2 CreateSelfSigned()
+    {
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create();
+        var req = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            "CN=loopback.tao.dev", ecdsa, System.Security.Cryptography.HashAlgorithmName.SHA256);
+        return req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+    }
 }

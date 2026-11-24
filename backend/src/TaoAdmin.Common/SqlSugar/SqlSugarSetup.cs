@@ -102,13 +102,7 @@ public static class SqlSugarSetup
             };
 
             // AOP：慢 SQL 告警（超过 1 秒）
-            db.Aop.OnLogExecuted = (sql, pars) =>
-            {
-                if (db.Ado.SqlExecutionTime > TimeSpan.FromSeconds(1))
-                {
-                    sqlLog.Warning("慢SQL({Elapsed}ms): {Sql}", db.Ado.SqlExecutionTime.TotalMilliseconds, sql);
-                }
-            };
+            db.Aop.OnLogExecuted = (sql, pars) => WarnSlowSql(sqlLog, db.Ado.SqlExecutionTime, sql);
 
             // AOP：SQL 执行异常记录
             db.Aop.OnError = ex =>
@@ -120,6 +114,18 @@ public static class SqlSugarSetup
         });
 
         return services;
+    }
+
+    /// <summary>
+    /// 慢 SQL 告警判定：执行耗时超过 1 秒写告警日志，否则静默。
+    /// 抽成静态方法以便对阈值两侧分支做实效断言（真实查询难以稳定跑满 1 秒）。
+    /// </summary>
+    internal static void WarnSlowSql(Serilog.ILogger sqlLog, TimeSpan elapsed, string sql)
+    {
+        if (elapsed > TimeSpan.FromSeconds(1))
+        {
+            sqlLog.Warning("慢SQL({Elapsed}ms): {Sql}", elapsed.TotalMilliseconds, sql);
+        }
     }
 
     /// <summary>

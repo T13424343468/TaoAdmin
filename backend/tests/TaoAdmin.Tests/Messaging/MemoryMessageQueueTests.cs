@@ -63,6 +63,29 @@ public class MemoryMessageQueueTests
     }
 
     [Fact]
+    public void ProviderName_标识内存实现()
+    {
+        // 监控展示依赖提供方名称，写死断言防误改
+        Assert.Equal("memory", new MemoryMessageQueue().ProviderName);
+    }
+
+    /// <summary>不重写 GetStats 的最小实现：走接口默认实现（不支持统计返回空）。</summary>
+    private sealed class MinimalQueue : IMessageQueue
+    {
+        public string ProviderName => "minimal";
+        public Task PublishAsync(string topic, string body) => Task.CompletedTask;
+        public Task SubscribeAsync(string topic, Func<MessageEnvelope, Task> onMessage, CancellationToken ct)
+            => Task.CompletedTask;
+    }
+
+    [Fact]
+    public void GetStats_接口默认实现_返回空统计()
+    {
+        IMessageQueue minimal = new MinimalQueue();
+        Assert.Empty(minimal.GetStats()); // 默认实现：不支持积压统计
+    }
+
+    [Fact]
     public async Task TwoTopics_ShouldStayIsolated()
     {
         var queue = new MemoryMessageQueue();

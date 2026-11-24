@@ -172,6 +172,35 @@ public class RedisLockoutDatabaseAdapterTests
         Assert.True(adapter.KeyExpire("k", TimeSpan.FromMinutes(2)));
         Assert.Equal(TimeSpan.FromMinutes(2), state.Ttls["k"]);
     }
+
+    [Fact]
+    public void 键删除_存活时间与扫描键_透传实效()
+    {
+        var keys = new RedisKey[] { "lock:user:1", "lock:user:2" };
+        var db = LooseProxy.Of<IDatabase>((method, _) => method!.Name switch
+        {
+            nameof(IDatabase.KeyDelete) => true,
+            nameof(IDatabase.KeyTimeToLive) => TimeSpan.FromMinutes(3),
+            "get_Database" => 0, // ScanKeys 取 _db.Database 传给 Keys
+            _ => method.ReturnType == typeof(bool) ? false : (object?)null
+        });
+        var server = LooseProxy.Of<IServer>((method, _) =>
+            method!.Name == nameof(IServer.Keys) ? keys : null);
+        var multiplexer = LooseProxy.Of<IConnectionMultiplexer>((method, args) => method!.Name switch
+        {
+            nameof(IConnectionMultiplexer.GetDatabase) => db,
+            nameof(IConnectionMultiplexer.GetEndPoints) =>
+                new System.Net.EndPoint[] { new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 6379) },
+            nameof(IConnectionMultiplexer.GetServer) => server,
+            _ => null
+        });
+        var adapter = new RedisLockoutDatabaseAdapter(multiplexer);
+
+        Assert.True(adapter.KeyDelete("lock:user:1"));                       // 删除透传
+        Assert.Equal(TimeSpan.FromMinutes(3), adapter.KeyTimeToLive("k"));   // 存活时间透传
+        Assert.Equal(new[] { "lock:user:1", "lock:user:2" },                 // 扫描键转字符串
+            adapter.ScanKeys("lock:*").ToArray());
+    }
 }
 
 /// <summary>读写分离扩展：ForceMaster 临时禁用分离并恢复。</summary>
