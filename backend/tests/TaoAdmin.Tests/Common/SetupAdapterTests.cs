@@ -67,6 +67,33 @@ public class MessageQueueSetupTests
     }
 
     [Fact]
+    public void AddMessageQueue_开关打开但配置缺省_走默认连接参数()
+    {
+        // Enabled=true 但各配置项缺省：HostName/UserName/Password/VirtualHost 走 ?? 兜底、Port 走默认 5672
+        // RabbitMqMessageQueue 构造不发起真实连接，实例化安全
+        using var sp = Build(new Dictionary<string, string?> { ["RabbitMq:Enabled"] = "true" });
+        var mq = sp.GetRequiredService<IMessageQueue>();
+        Assert.Equal("rabbitmq", mq.ProviderName);
+        Assert.IsType<RabbitMqMessageQueue>(mq);
+    }
+
+    [Fact]
+    public void AddMessageQueue_泵环境变量置零_不挂泵()
+    {
+        // MQPUMP=0：跳过 AddHostedService，无泵服务
+        Environment.SetEnvironmentVariable("MQPUMP", "0");
+        try
+        {
+            using var sp = Build(new Dictionary<string, string?>());
+            Assert.DoesNotContain(sp.GetServices<IHostedService>(), s => s is MessageQueuePump);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("MQPUMP", null);
+        }
+    }
+
+    [Fact]
     public async Task 泵启动_处理器被订阅_消息投递到处理器()
     {
         var received = new TaskCompletionSource<MessageEnvelope>(TaskCreationOptions.RunContinuationsAsynchronously);
