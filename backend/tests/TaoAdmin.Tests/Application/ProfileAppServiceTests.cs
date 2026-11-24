@@ -152,4 +152,31 @@ public class ProfileAppServiceTests
         Assert.True(BCrypt.Net.BCrypt.Verify("Old@123456", repo.Users[1].Password)); // 原密码未动
         Assert.Empty(sessions.List()); // 会话未受牵连（未注册即无有效会话）
     }
+
+    [Fact]
+    public async Task ChangePasswordAsync_EmptyOldPassword_ShouldThrow()
+    {
+        var (svc, repo, _) = Create();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            svc.ChangePasswordAsync(1, new ChangePasswordRequest { oldPassword = "", newPassword = "New@123456" }));
+        Assert.Contains("旧密码不正确", ex.Message);
+        Assert.True(BCrypt.Net.BCrypt.Verify("Old@123456", repo.Users[1].Password)); // 原密码未动
+    }
+
+    [Fact]
+    public async Task GetAsync_MissingUser_ShouldThrow401()
+    {
+        var (svc, _, _) = Create(user: null);
+        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.GetAsync(999));
+        Assert.Equal(401, ex.Code);
+    }
+
+    [Fact]
+    public async Task UpdateBaseAsync_MissingUser_ShouldThrow401()
+    {
+        var (svc, _, _) = Create(user: null);
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            svc.UpdateBaseAsync(999, new ProfileSaveRequest { nickname = "x" }));
+        Assert.Equal(401, ex.Code);
+    }
 }

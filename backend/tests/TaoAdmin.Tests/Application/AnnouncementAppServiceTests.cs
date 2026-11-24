@@ -108,6 +108,22 @@ public class AnnouncementAppServiceTests
         Assert.Equal(404, ex.Code);
     }
 
+    [Fact]
+    public async Task SetStatusAsync_OnlineWithNullPublishTime_ShouldFillNow()
+    {
+        var (svc, db) = Create();
+        await svc.PublishAsync(new AnnouncementSaveRequest { title = "补时间" }, 1, "admin");
+        var id = db.Queryable<SysAnnouncement>().Single().Id;
+        db.Updateable<SysAnnouncement>().SetColumns(a => new SysAnnouncement { PublishTime = null })
+            .Where(a => a.Id == id).ExecuteCommand();
+
+        await svc.SetStatusAsync(id, online: true);
+
+        var row = db.Queryable<SysAnnouncement>().Single(a => a.Id == id);
+        Assert.Equal(AnnouncementAppService.StatusPublished, row.Status);
+        Assert.NotNull(row.PublishTime); // 上线补发布时间
+    }
+
     // ==================== BatchDeleteAsync ====================
 
     [Fact]

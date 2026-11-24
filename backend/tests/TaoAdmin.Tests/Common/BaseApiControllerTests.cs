@@ -77,4 +77,37 @@ public class BaseApiControllerTests
         var http = new DefaultHttpContext(); // 无反代头、无远端地址（如内存管道测试）
         Assert.Equal(string.Empty, NewController(http).DoIp()); // 兜底空串不抛出
     }
+
+    // ==================== ClaimsPrincipalExtensions ====================
+
+    [Fact]
+    public void UserExtensions_ShouldReadIdNamePermsRoles()
+    {
+        var user = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(new[]
+        {
+            new System.Security.Claims.Claim("UserId", "42"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "tao"),
+            new System.Security.Claims.Claim(Auth.PermissionAuthorizationHandler.PermClaimType, "user:view"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "ops"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "admin"),
+        }, "TestAuth"));
+
+        Assert.Equal(42L, user.GetUserId());
+        Assert.Equal("tao", user.GetUserName());
+        Assert.Equal(new[] { "user:view" }, user.GetPermissions());
+        Assert.Equal(new[] { "ops", "admin" }, user.GetRoles());
+        Assert.True(user.IsSuperAdmin()); // 拥有 admin 角色即超管
+    }
+
+    [Fact]
+    public void UserExtensions_Anonymous_ShouldReturnDefaults()
+    {
+        var user = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity());
+
+        Assert.Equal(0L, user.GetUserId()); // 无 UserId 声明兜底 0
+        Assert.Equal(string.Empty, user.GetUserName()); // 匿名兜底空串
+        Assert.Empty(user.GetPermissions());
+        Assert.Empty(user.GetRoles());
+        Assert.False(user.IsSuperAdmin());
+    }
 }

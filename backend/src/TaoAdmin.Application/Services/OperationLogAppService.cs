@@ -141,7 +141,7 @@ public class LogCleanupBackgroundService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Delay(FirstDelay, stoppingToken);
-        while (!stoppingToken.IsCancellationRequested)
+        while (true)
         {
             try
             {
@@ -152,12 +152,19 @@ public class LogCleanupBackgroundService(
                 if (settings.LogRetentionDays > 0)
                     await cleanup.CleanupAsync(settings.LogRetentionDays);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // 清理失败不拖垮宿主：记错误，下个周期重试
                 logger.LogError(ex, "日志清理后台任务执行失败，等待下个周期重试");
             }
-            await Task.Delay(Interval, stoppingToken);
+            try
+            {
+                await Task.Delay(Interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break; // 停机即退出，不再重查条件
+            }
         }
     }
 }

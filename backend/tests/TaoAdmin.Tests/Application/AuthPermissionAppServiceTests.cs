@@ -551,6 +551,16 @@ public class AuditTrailTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteAsync_BothSidesNull_ShouldSerializeBothNull()
+    {
+        _db.CodeFirst.InitTables<SysOperationLog>();
+        await NewTrail().WriteAsync(1, "u", 0, "view", before: null, after: null);
+        var detail = _db.Queryable<SysOperationLog>().Single().Detail!;
+        Assert.Contains("\"before\":null", detail);
+        Assert.Contains("\"after\":null", detail);
+    }
+
+    [Fact]
     public async Task WriteAsync_NestedAndArraySensitiveKeys_ShouldMaskRecursively()
     {
         _db.CodeFirst.InitTables<SysOperationLog>();

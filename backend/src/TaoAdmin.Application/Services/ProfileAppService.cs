@@ -64,7 +64,8 @@ public class ProfileAppService
         var user = await _users.FindByIdAsync(userId) ?? throw new DomainException("用户不存在", 401);
         if (string.IsNullOrEmpty(req.oldPassword) || !BCrypt.Net.BCrypt.Verify(req.oldPassword, user.Password))
             throw new DomainException("旧密码不正确");
-        if ((req.newPassword ?? "") == req.oldPassword)
+        // 策略已保证新密码非空（空值在 CheckAsync 即被拒），此处直接判等即可
+        if (req.newPassword == req.oldPassword)
             throw new DomainException("新密码不能与当前密码相同");
 
         await _users.ResetPasswordAsync(userId, BCrypt.Net.BCrypt.HashPassword(req.newPassword!));
