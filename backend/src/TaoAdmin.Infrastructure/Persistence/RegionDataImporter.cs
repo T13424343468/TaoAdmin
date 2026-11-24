@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Reflection;
+using System.Text.Json;
 using SqlSugar;
 using TaoAdmin.Application.Services;
 using TaoAdmin.Common.Snowflake;
@@ -33,12 +34,18 @@ public static class RegionDataImporter
         public List<PackageNode> nodes { get; set; } = [];
     }
 
-    /// <summary>从内嵌数据包读取快照（供初始化导入与内置兜底复用）</summary>
-    public static RegionSnapshot LoadBuiltinSnapshot()
+    /// <summary>从内嵌数据包读取快照（供初始化导入与内置兜底复用；assembly 参数供测试注入无资源程序集）</summary>
+    public static RegionSnapshot LoadBuiltinSnapshot(Assembly? assembly = null)
     {
-        var assembly = typeof(RegionDataImporter).Assembly;
+        assembly ??= typeof(RegionDataImporter).Assembly;
         using var stream = assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"区划数据包资源缺失：{ResourceName}");
+        return ParseSnapshot(stream);
+    }
+
+    /// <summary>解析数据包流为快照（供内嵌包读取与测试复用）</summary>
+    internal static RegionSnapshot ParseSnapshot(Stream stream)
+    {
         var pkg = JsonSerializer.Deserialize<Package>(stream,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException("区划数据包解析结果为空");
@@ -56,7 +63,7 @@ public static class RegionDataImporter
         Code = n.code,
         Name = n.name,
         Level = n.level,
-        Children = n.children?.Select(ToDto).ToList() ?? []
+        Children = n.children == null ? [] : n.children.Select(ToDto).ToList()
     };
 
     /// <summary>导入区划数据（幂等：sys_region 已有数据则跳过）。返回导入总条数（0 表示已有数据未导入）。</summary>
