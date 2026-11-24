@@ -177,4 +177,62 @@ public class IdempotencyFilterMoreTests
         }));
         Assert.True(executed2);
     }
+
+    [Fact]
+    public async Task MissingTenantAndUserClaims_ShouldFallBackToDefaults()
+    {
+        // 无 tenant_id / UserId claim：cacheKey 兜底 "0" 与 "anon"，不抛异常且正常缓存
+        var store = new IdempotencyStore();
+        var filter = new IdempotencyFilter(store);
+
+        var http = new DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity("Bearer")); // 无任何 claim
+        http.Request.Path = "/api/anon";
+        http.Request.Headers["Idempotency-Key"] = "key-anon";
+
+        var descriptor = new ActionDescriptor
+        {
+            EndpointMetadata = new List<object> { new IdempotentAttribute() }
+        };
+        var ctx = new ActionExecutingContext(new ActionContext(http, new RouteData(), descriptor),
+            new List<IFilterMetadata>(), new Dictionary<string, object?>(), new object());
+
+        await filter.OnActionExecutionAsync(ctx, new ActionExecutionDelegate(() =>
+            Task.FromResult(new ActionExecutedContext(ctx, new List<IFilterMetadata>(), null!)
+            {
+                Result = new ObjectResult(ApiResult<object>.Ok("anon-ok"))
+            })));
+
+        // 兜底键真实写入：0:anon:/api/anon:key-anon
+        Assert.NotNull(store.TryGet("0:anon:/api/anon:key-anon"));
+    }
+
+    [Fact]
+    public async Task Replay_ShouldReturnCachedBody_AsJsonResult()
+    {
+        // 重放路径：命中缓存 → 反序列化缓存体为 ApiResult 返回，且带重放标记
+        var store = new IdempotencyStore();
+        var filter = new IdempotencyFilter(store);
+
+        var ctx1 = BuildContext(idempotencyKey: "key-R");
+        await filter.OnActionExecutionAsync(ctx1, new ActionExecutionDelegate(() =>
+            Task.FromResult(new ActionExecutedContext(ctx1, new List<IFilterMetadata>(), null!)
+            {
+                Result = new ObjectResult(ApiResult<object>.Ok(new { orderId = "R1" }))
+            })));
+
+        var ctx2 = BuildContext(idempotencyKey: "key-R");
+        var executed2 = false;
+        await filter.OnActionExecutionAsync(ctx2, new ActionExecutionDelegate(() =>
+        {
+            executed2 = true;
+            return Task.FromResult(new ActionExecutedContext(ctx2, new List<IFilterMetadata>(), null!));
+        }));
+
+        Assert.False(executed2); // 业务未执行
+        Assert.Equal("true", ctx2.HttpContext.Response.Headers["X-Idempotent-Replayed"].ToString());
+        var json = Assert.IsType<JsonResult>(ctx2.Result);
+        var replayed = Assert.IsType<ApiResult<object>>(json.Value);
+        Assert.True(replayed.Success);
+    }
 }
