@@ -25,6 +25,8 @@ public class CodegenDesignSaveRequest
     public string? remark { get; set; }
     /// <summary>主从关系配置（主表视角；null 表示单表设计）</summary>
     public CodegenMasterDetailConfig? masterDetail { get; set; }
+    /// <summary>增强配置（导入导出等补配；null 表示清空）</summary>
+    public CodegenEnhancementConfig? enhancement { get; set; }
 }
 
 /// <summary>同步结果：执行了什么、跳过了什么、待确认的破坏性语句</summary>
@@ -36,6 +38,16 @@ public class CodegenSyncResult
     public List<string> actions { get; set; } = new();
     /// <summary>破坏性变更语句（删列/改类型）：仅返回不执行，经确认后另行执行</summary>
     public List<string> destructivePending { get; set; } = new();
+}
+
+/// <summary>生成模块运行时配置（生成页挂载时拉取，按配置渲染；补配即生效）</summary>
+public class CodegenModuleConfig
+{
+    public string id { get; set; } = "";
+    public string tableName { get; set; } = "";
+    public string displayName { get; set; } = "";
+    public List<CodegenFieldDesign> fields { get; set; } = new();
+    public CodegenEnhancementConfig enhancement { get; set; } = new();
 }
 
 /// <summary>生成结果：文件清单 + 记录 Id</summary>
@@ -92,6 +104,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         row.DisplayName = req.displayName.Trim();
         row.FieldsJson = JsonSerializer.Serialize(req.fields);
         row.Remark = req.remark;
+        row.EnhancementJson = req.enhancement == null ? null : JsonSerializer.Serialize(req.enhancement);
         row.UpdatedAt = DateTime.Now;
         await SaveMasterDetailAsync(row, req.masterDetail);
         if (row.Id != 0 && await db.Queryable<SysCodeGenTable>().AnyAsync(t => t.Id == row.Id))
@@ -152,6 +165,23 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
     public async Task<SysCodeGenTable> GetAsync(long id)
         => await db.Queryable<SysCodeGenTable>().FirstAsync(t => t.Id == id && t.IsDeleted == false)
            ?? throw new DomainException("表设计不存在或已删除");
+
+    /// <summary>
+    /// 生成模块运行时配置（⑲增强配置「补配即生效」的读取口）：
+    /// 生成页挂载时拉取字段清单（含字典关联/查询配置/控件）与增强配置，按配置渲染，补配后无需重新生成。
+    /// </summary>
+    public async Task<CodegenModuleConfig> GetConfigAsync(long id)
+    {
+        var design = await GetAsync(id);
+        return new CodegenModuleConfig
+        {
+            id = design.Id.ToString(),
+            tableName = design.TableName,
+            displayName = design.DisplayName,
+            fields = design.ParseFields(),
+            enhancement = design.ParseEnhancement() ?? new CodegenEnhancementConfig(),
+        };
+    }
 
     /// <summary>删除设计（软删，不动已生成的数据库表与代码）</summary>
     public async Task DeleteAsync(long id)
@@ -481,6 +511,9 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("using TaoAdmin.Domain;");
         sb.AppendLine("using TaoAdmin.Domain.Entities;");
         sb.AppendLine("using SqlSugar;");
+        var enhHeader = design.ParseEnhancement();
+        if (enhHeader != null && (enhHeader.importEnabled || enhHeader.exportEnabled))
+            sb.AppendLine("using MiniExcelLibs;");
         sb.AppendLine();
         sb.AppendLine("namespace TaoAdmin.Application.Services;");
         sb.AppendLine();
@@ -561,7 +594,196 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("            .Where(t => ids.Contains(t.Id) && t.IsDeleted == false)");
         sb.AppendLine("            .ExecuteCommandAsync();");
         sb.AppendLine("    }");
+        // 增强配置：导入导出（补配后重新生成才带接口；生成页运行时读配置决定按钮显隐）
+        var enh = design.ParseEnhancement();
+        if (enh != null && (enh.importEnabled || enh.exportEnabled))
+            sb.Append(GenExcelSupport(design, fields, entityName));
         sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    /// <summary>生成导入导出支撑代码（MiniExcel，列头=字段显示名，逐行校验错误明细不中断）</summary>
+    private static string GenExcelSupport(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName)
+    {
+        var enh = design.ParseEnhancement()!;
+        var sb = new StringBuilder();
+        var likeField = fields.FirstOrDefault(f => f.queryType == "like");
+        var binders = string.Join(",\n", fields.Select(f =>
+            $"            (\"{f.label}\", \"{f.name}\", \"{f.dataType}\", {(!f.nullable).ToString().ToLower()}, {(f.dataType == "string" && f.length is int l ? l.ToString() : "null")})"));
+        var exportRows = string.Join("\n", fields.Select(f =>
+        {
+            var p = ToPascal(f.name);
+            return f.dataType switch
+            {
+                "bool" => $"            [\"{f.label}\"] = t.{p} ? \"是\" : \"否\",",
+                "datetime" => f.nullable
+                    ? $"            [\"{f.label}\"] = t.{p} == null ? \"\" : ((DateTime)t.{p}).ToString(\"yyyy-MM-dd HH:mm:ss\"),"
+                    : $"            [\"{f.label}\"] = t.{p}.ToString(\"yyyy-MM-dd HH:mm:ss\"),",
+                "string" or "text" => f.nullable
+                    ? $"            [\"{f.label}\"] = t.{p} ?? \"\","
+                    : $"            [\"{f.label}\"] = t.{p},",
+                _ => $"            [\"{f.label}\"] = t.{p}.ToString(),"
+            };
+        }));
+        var sampleRow = string.Join("\n", fields.Select(f =>
+        {
+            var sample = f.dataType switch
+            {
+                "int" or "long" => "0",
+                "decimal" => "0",
+                "datetime" => "2026-01-01 00:00:00",
+                "bool" => "是",
+                _ => "示例"
+            };
+            return $"            [\"{f.label}\"] = \"{sample}\",";
+        }));
+
+        sb.AppendLine();
+        sb.AppendLine("    // ---------- 导入导出（增强配置启用时生成；列头=字段显示名） ----------");
+        if (enh.importEnabled)
+        {
+            sb.AppendLine("    private static readonly (string Col, string Name, string DataType, bool Required, int? MaxLen)[] ImportBinders =");
+            sb.AppendLine("        new (string, string, string, bool, int?)[] {");
+            sb.AppendLine(binders);
+            sb.AppendLine("        };");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>导入模板（表头 + 一行示例）</summary>");
+            sb.AppendLine("    public async Task<byte[]> BuildTemplateAsync()");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var sample = new Dictionary<string, object>");
+            sb.AppendLine("        {");
+            sb.AppendLine(sampleRow);
+            sb.AppendLine("        };");
+            sb.AppendLine("        using var ms = new MemoryStream();");
+            sb.AppendLine($"        await MiniExcel.SaveAsAsync(ms, new List<Dictionary<string, object>> {{ sample }}, sheetName: \"{design.DisplayName}导入模板\");");
+            sb.AppendLine("        return ms.ToArray();");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>导入：逐行校验（必填/类型/长度），错误行给明细不中断</summary>");
+            sb.AppendLine($"    public async Task<{entityName}ImportResultDto> ImportAsync(Stream stream)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var result = new " + entityName + "ImportResultDto();");
+            sb.AppendLine("        List<IDictionary<string, object?>> rows;");
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+            sb.AppendLine("            rows = MiniExcel.Query(stream, true).Cast<IDictionary<string, object?>>().ToList();");
+            sb.AppendLine("        }");
+            sb.AppendLine("        catch (Exception)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            throw new DomainException(\"表格解析失败：请使用系统提供的导入模板填写\", 400);");
+            sb.AppendLine("        }");
+            sb.AppendLine("        string Cell(IDictionary<string, object?> row, string col) => row.TryGetValue(col, out var v) && v != null ? v.ToString()!.Trim() : \"\";");
+            sb.AppendLine("        var valid = new List<" + entityName + ">();");
+            sb.AppendLine("        for (int i = 0; i < rows.Count; i++)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var row = rows[i];");
+            sb.AppendLine("            int rowNo = i + 1;");
+            sb.AppendLine("            if (row.All(c => string.IsNullOrWhiteSpace(c.Value?.ToString()))) continue;");
+            sb.AppendLine("            result.total++;");
+            sb.AppendLine("            var bound = new Dictionary<string, object?>();");
+            sb.AppendLine("            string? err = null;");
+            sb.AppendLine("            foreach (var b in ImportBinders)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var text = Cell(row, b.Col);");
+            sb.AppendLine("                var cerr = ConvertImportCell(text, b.DataType, out var v);");
+            sb.AppendLine("                if (cerr == null && b.Required && text.Length == 0) cerr = $\"{b.Label}不能为空\";");
+            sb.AppendLine("                if (cerr == null && b.MaxLen is int ml && text.Length > ml) cerr = $\"{b.Label}超过{ml}个字符\";");
+            sb.AppendLine("                if (cerr != null)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    result.errors.Add(new " + entityName + "ImportErrorDto { row = rowNo, reason = $\"{b.Label}{cerr}\" });");
+            sb.AppendLine("                    err = \"stop\";");
+            sb.AppendLine("                    break;");
+            sb.AppendLine("                }");
+            sb.AppendLine("                bound[b.Name] = v;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            if (err != null) continue;");
+            sb.AppendLine("            var item = new " + entityName + "();");
+            sb.AppendLine("            BindImportProps(item, bound);");
+            sb.AppendLine("            valid.Add(item);");
+            sb.AppendLine("        }");
+            sb.AppendLine("        foreach (var item in valid)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            item.Id = snowflake.NextId();");
+            sb.AppendLine("            item.CreatedAt = DateTime.Now;");
+            sb.AppendLine("            item.UpdatedAt = DateTime.Now;");
+            sb.AppendLine("            item.IsDeleted = false;");
+            sb.AppendLine("            await db.Insertable(item).ExecuteCommandAsync();");
+            sb.AppendLine("            result.success++;");
+            sb.AppendLine("        }");
+            sb.AppendLine("        return result;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine("    private static string? ConvertImportCell(string text, string dataType, out object? value)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        value = text;");
+            sb.AppendLine("        switch (dataType)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            case \"int\": if (text.Length == 0) { value = 0; return null; } if (int.TryParse(text, out var i)) { value = i; return null; } return \"须为整数\";");
+            sb.AppendLine("            case \"long\": if (text.Length == 0) { value = 0L; return null; } if (long.TryParse(text, out var l)) { value = l; return null; } return \"须为整数\";");
+            sb.AppendLine("            case \"decimal\": if (text.Length == 0) { value = 0m; return null; } if (decimal.TryParse(text, out var d)) { value = d; return null; } return \"须为数字\";");
+            sb.AppendLine("            case \"bool\":");
+            sb.AppendLine("                if (text is \"是\" or \"1\" or \"true\") { value = true; return null; }");
+            sb.AppendLine("                if (text is \"\" or \"否\" or \"0\" or \"false\") { value = false; return null; }");
+            sb.AppendLine("                return \"须为 是/否\";");
+            sb.AppendLine("            case \"datetime\": if (text.Length == 0) { value = null; return null; } if (DateTime.TryParse(text, out var dt)) { value = dt; return null; } return \"日期格式无效\";");
+            sb.AppendLine("            default: value = text; return null;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine($"    private static void BindImportProps({entityName} item, Dictionary<string, object?> bound)");
+            sb.AppendLine("    {");
+            foreach (var f in fields)
+            {
+                var cast = f.dataType switch
+                {
+                    "int" => "int)",
+                    "long" => "long)",
+                    "decimal" => "decimal)",
+                    "bool" => "bool)",
+                    "datetime" => "DateTime?)",
+                    _ => "string?)"
+                };
+                sb.AppendLine($"        if (bound.TryGetValue(\"{f.name}\", out var v{ToPascal(f.name)})) item.{ToPascal(f.name)} = ({cast})v{ToPascal(f.name)};");
+            }
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine($"/// <summary>{design.DisplayName} 导入结果</summary>");
+            sb.AppendLine($"public class {entityName}ImportResultDto");
+            sb.AppendLine("{");
+            sb.AppendLine("    public int total { get; set; }");
+            sb.AppendLine("    public int success { get; set; }");
+            sb.AppendLine($"    public List<{entityName}ImportErrorDto> errors {{ get; set; }} = new();");
+            sb.AppendLine("}");
+            sb.AppendLine();
+            sb.AppendLine($"public class {entityName}ImportErrorDto");
+            sb.AppendLine("{");
+            sb.AppendLine("    public int row { get; set; }");
+            sb.AppendLine("    public string reason { get; set; } = \"\";");
+            sb.AppendLine("}");
+        }
+        if (enh.exportEnabled)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>导出（xlsx 字节）</summary>");
+            sb.AppendLine("    public async Task<byte[]> ExportAsync(string? keyword = null)");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        var list = await db.Queryable<{entityName}>().Where(t => t.IsDeleted == false)");
+            if (likeField != null)
+                sb.AppendLine($"            .WhereIF(!string.IsNullOrWhiteSpace(keyword), t => t.{ToPascal(likeField.name)}.Contains(keyword!))");
+            sb.AppendLine("            .OrderByDescending(t => t.Id).ToListAsync();");
+            sb.AppendLine("        var rows = new List<Dictionary<string, object>>();");
+            sb.AppendLine("        foreach (var t in list)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            rows.Add(new Dictionary<string, object>");
+            sb.AppendLine("            {");
+            sb.AppendLine(exportRows);
+            sb.AppendLine("            });");
+            sb.AppendLine("        }");
+            sb.AppendLine("        using var ms = new MemoryStream();");
+            sb.AppendLine($"        await MiniExcel.SaveAsAsync(ms, rows, sheetName: \"{design.DisplayName}\");");
+            sb.AppendLine("        return ms.ToArray();");
+            sb.AppendLine("    }");
+        }
         return sb.ToString();
     }
 
@@ -636,6 +858,47 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine($"    [Permission(\"{perm}\")]");
         sb.AppendLine($"    public async Task<ApiResult<object>> BatchDelete([FromBody] BatchIdsRequest req)");
         sb.AppendLine($"        => ApiOk($\"已删除 {{await _svc.BatchDeleteAsync(req.Ids)}} 条\");");
+        var enhCtl = design.ParseEnhancement();
+        if (enhCtl != null && (enhCtl.importEnabled || enhCtl.exportEnabled))
+        {
+            if (enhCtl.exportEnabled)
+            {
+                sb.AppendLine();
+                sb.AppendLine("    /// <summary>导出（xlsx）</summary>");
+                sb.AppendLine("    [HttpGet(\"export\")]");
+                sb.AppendLine($"    [Permission(\"{perm}\")]");
+                sb.AppendLine("    public async Task<IActionResult> Export([FromQuery] string? keyword = null)");
+                sb.AppendLine("    {");
+                sb.AppendLine("        var bytes = await _svc.ExportAsync(keyword);");
+                sb.AppendLine($"        return File(bytes, \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\", $\"{design.DisplayName}.xlsx\");");
+                sb.AppendLine("    }");
+            }
+            if (enhCtl.importEnabled)
+            {
+                sb.AppendLine();
+                sb.AppendLine("    /// <summary>下载导入模板（xlsx）</summary>");
+                sb.AppendLine("    [HttpGet(\"import-template\")]");
+                sb.AppendLine($"    [Permission(\"{perm}\")]");
+                sb.AppendLine("    public async Task<IActionResult> ImportTemplate()");
+                sb.AppendLine("    {");
+                sb.AppendLine("        var bytes = await _svc.BuildTemplateAsync();");
+                sb.AppendLine($"        return File(bytes, \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\", $\"{design.DisplayName}导入模板.xlsx\");");
+                sb.AppendLine("    }");
+                sb.AppendLine();
+                sb.AppendLine("    /// <summary>导入（xlsx；逐行校验，错误行给明细不中断）</summary>");
+                sb.AppendLine("    [HttpPost(\"import\")]");
+                sb.AppendLine($"    [Permission(\"{perm}\")]");
+                sb.AppendLine("    public async Task<ApiResult<object>> Import(IFormFile file)");
+                sb.AppendLine("    {");
+                sb.AppendLine("        if (file == null || file.Length == 0) throw new DomainException(\"请选择要导入的文件\", 400);");
+                sb.AppendLine("        using var ms = new MemoryStream();");
+                sb.AppendLine("        await file.CopyToAsync(ms);");
+                sb.AppendLine("        ms.Position = 0;");
+                sb.AppendLine("        var result = await _svc.ImportAsync(ms);");
+                sb.AppendLine("        return ApiOk<object>(result);");
+                sb.AppendLine("    }");
+            }
+        }
         sb.AppendLine("}");
         return sb.ToString();
     }
@@ -683,6 +946,87 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine($"export function batchDelete{entityName}(ids: string[]): Promise<{{ deleted: number }}> {{");
         sb.AppendLine($"  return request({{ url: '/identity/{design.TableName}/batch-delete', method: 'post', data: {{ ids: ids.map(Number) }} }});");
         sb.AppendLine("}");
+        var enhApi = design.ParseEnhancement();
+        var hasExcel = enhApi != null && (enhApi.importEnabled || enhApi.exportEnabled);
+        // 运行时配置读取（增强配置补配即生效）：生成页挂载时拉取，按配置渲染
+        sb.AppendLine();
+        sb.AppendLine("/** 运行时配置（字段/字典/查询/导入导出按配置渲染，补配后无需重新生成） */");
+        sb.AppendLine($"export function get{entityName}Config(): Promise<any> {{");
+        sb.AppendLine($"  return request({{ url: '/identity/codegen/designs/{design.Id}/config', method: 'get' }});");
+        sb.AppendLine("}");
+        if (hasExcel)
+        {
+            sb.AppendLine();
+            sb.AppendLine("import service from './request';");
+            sb.AppendLine("import { message, Modal } from 'ant-design-vue';");
+            sb.AppendLine("import { h } from 'vue';");
+            sb.AppendLine();
+            if (enhApi!.exportEnabled)
+            {
+                sb.AppendLine("/** 导出（xlsx 下载） */");
+                sb.AppendLine($"export async function export{entityName}(keyword?: string): Promise<void> {{");
+                sb.AppendLine("  const res = await service.get(" + $"'/identity/{design.TableName}/export'" + ", {");
+                sb.AppendLine("    params: keyword ? { keyword } : undefined,");
+                sb.AppendLine("    responseType: 'blob',");
+                sb.AppendLine("  });");
+                sb.AppendLine($"  saveBlob(res.data as Blob, readFilename(res.headers, '{design.DisplayName}.xlsx'));");
+                sb.AppendLine("}");
+            }
+            if (enhApi.importEnabled)
+            {
+                sb.AppendLine("/** 下载导入模板（xlsx） */");
+                sb.AppendLine($"export async function download{entityName}Template(): Promise<void> {{");
+                sb.AppendLine("  const res = await service.get(" + $"'/identity/{design.TableName}/import-template'" + ", { responseType: 'blob' });");
+                sb.AppendLine($"  saveBlob(res.data as Blob, readFilename(res.headers, '{design.DisplayName}导入模板.xlsx'));");
+                sb.AppendLine("}");
+                sb.AppendLine();
+                sb.AppendLine("/** 导入（xlsx 上传；返回逐行校验错误明细） */");
+                sb.AppendLine($"export function import{entityName}(file: File): Promise<{{ total: number; success: number; errors: {{ row: number; reason: string }}[] }}> {{");
+                sb.AppendLine("  const form = new FormData();");
+                sb.AppendLine("  form.append('file', file);");
+                sb.AppendLine($"  return service.post('/identity/{design.TableName}/import', form) as any;");
+                sb.AppendLine("}");
+                sb.AppendLine();
+                sb.AppendLine("/** 导入结果提示（有错误行时给明细，不中断） */");
+                sb.AppendLine($"export function notifyImportResult(res: {{ total: number; success: number; errors: {{ row: number; reason: string }}[] }}): void {{");
+                sb.AppendLine("  if (res.errors && res.errors.length > 0) {");
+                sb.AppendLine("    Modal.error({");
+                sb.AppendLine("      title: `导入完成：成功 ${res.success}/${res.total} 条`,");
+                sb.AppendLine("      content: h(");
+                sb.AppendLine("        'div',");
+                sb.AppendLine("        {},");
+                sb.AppendLine("        res.errors.slice(0, 10).map((e) => h('p', `第 ${e.row} 行：${e.reason}`))");
+                sb.AppendLine("      ),");
+                sb.AppendLine("    });");
+                sb.AppendLine("  } else {");
+                sb.AppendLine("    message.success(`导入成功 ${res.success} 条`);");
+                sb.AppendLine("  }");
+                sb.AppendLine("}");
+            }
+            sb.AppendLine();
+            sb.AppendLine("/** 按 Content-Disposition 还原文件名（缺失时用兜底名） */");
+            sb.AppendLine("function readFilename(headers: any, fallback: string): string {");
+            sb.AppendLine("  const dispo: string = headers?.['content-disposition'] || '';");
+            sb.AppendLine("  const match = dispo.match(/filename\\*?=(?:UTF-8''|\")?([^\";]+)/i);");
+            sb.AppendLine("  let filename = match ? match[1].replace(/\"/g, '') : fallback;");
+            sb.AppendLine("  try {");
+            sb.AppendLine("    if (filename.includes('%')) filename = decodeURIComponent(filename);");
+            sb.AppendLine("  } catch {");
+            sb.AppendLine("    // 保留原名");
+            sb.AppendLine("  }");
+            sb.AppendLine("  return filename;");
+            sb.AppendLine("}");
+            sb.AppendLine();
+            sb.AppendLine("/** 触发浏览器保存文件 */");
+            sb.AppendLine("function saveBlob(blob: Blob, filename: string): void {");
+            sb.AppendLine("  const url = URL.createObjectURL(blob);");
+            sb.AppendLine("  const a = document.createElement('a');");
+            sb.AppendLine("  a.href = url;");
+            sb.AppendLine("  a.download = filename;");
+            sb.AppendLine("  a.click();");
+            sb.AppendLine("  URL.revokeObjectURL(url);");
+            sb.AppendLine("}");
+        }
         return sb.ToString();
     }
 
@@ -695,27 +1039,33 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
 
     private static string GenFrontendPage(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, string camel)
     {
-        var listFields = fields.Where(f => f.showInList).ToList();
+        // 配置驱动页面：字段清单/字典关联/查询配置/导入导出按钮均按运行时配置渲染（增强配置补配即生效，无需重新生成）
+        var enh = design.ParseEnhancement();
         var sb = new StringBuilder();
         sb.AppendLine("<!-- ==== CODEGEN GENERATED FILE（生成区：重复生成会覆盖本文件） ====");
-        sb.AppendLine($"     {design.DisplayName} 列表页：分页 + 搜索 + 表单弹窗（增/改）+ 批量删除（Ant Design Vue 4） -->");
+        sb.AppendLine($"     {design.DisplayName} 列表页：配置驱动（字段/字典/查询/导入导出按运行时配置渲染，补配即生效） -->");
         sb.AppendLine("<template>");
         sb.AppendLine("  <div class=\"page-container\">");
         sb.AppendLine("    <!-- 搜索与操作区 -->");
         sb.AppendLine("    <div class=\"table-operator\">");
         sb.AppendLine("      <a-input v-model:value=\"keyword\" placeholder=\"搜索\" allow-clear style=\"width: 220px\" @press-enter=\"loadData()\" />");
         sb.AppendLine("      <a-button type=\"primary\" style=\"margin-left: 8px\" @click=\"loadData()\">查询</a-button>");
+        sb.AppendLine("      <a-button style=\"margin-left: 8px\" @click=\"resetQuery\">重置</a-button>");
         sb.AppendLine("      <a-button type=\"primary\" style=\"margin-left: 12px\" @click=\"openCreate\">新增</a-button>");
+        sb.AppendLine("      <a-button v-if=\"enhancement.exportEnabled\" style=\"margin-left: 12px\" @click=\"onExport\">导出</a-button>");
+        sb.AppendLine("      <a-upload v-if=\"enhancement.importEnabled\" :show-upload-list=\"false\" :before-upload=\"onImport\" accept=\".xlsx,.xls\" style=\"margin-left: 12px\">");
+        sb.AppendLine("        <a-button>导入</a-button>");
+        sb.AppendLine("      </a-upload>");
         sb.AppendLine("      <a-space v-if=\"selectedRowKeys.length > 0\" style=\"margin-left: 12px\">");
         sb.AppendLine("        <span>已选 {{ selectedRowKeys.length }} 项</span>");
         sb.AppendLine("        <a-button danger @click=\"onBatchDelete\">批量删除</a-button>");
         sb.AppendLine("      </a-space>");
         sb.AppendLine("    </div>");
         sb.AppendLine();
-        sb.AppendLine("    <!-- 表格 -->");
+        sb.AppendLine("    <!-- 表格（列按运行时配置渲染） -->");
         sb.AppendLine("    <a-table");
         sb.AppendLine("      :data-source=\"rows\"");
-        sb.AppendLine("      :columns=\"columns\"");
+        sb.AppendLine("      :columns=\"listColumns\"");
         sb.AppendLine("      :loading=\"loading\"");
         sb.AppendLine("      row-key=\"id\"");
         sb.AppendLine("      size=\"middle\"");
@@ -732,49 +1082,68 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("            </a-popconfirm>");
         sb.AppendLine("          </a-space>");
         sb.AppendLine("        </template>");
-        sb.AppendLine("        <template v-else-if=\"boolColumns.includes(column.key)\">");
+        sb.AppendLine("        <template v-else-if=\"dictMap[column.key]\">");
+        sb.AppendLine("          {{ dictLabel(dictMap[column.key], record[column.key]) }}");
+        sb.AppendLine("        </template>");
+        sb.AppendLine("        <template v-else-if=\"boolKeys.includes(column.key)\">");
         sb.AppendLine("          {{ record[column.key] ? '是' : '否' }}");
         sb.AppendLine("        </template>");
         sb.AppendLine("      </template>");
         sb.AppendLine("    </a-table>");
         sb.AppendLine();
-        sb.AppendLine("    <!-- 新增/编辑弹窗 -->");
+        sb.AppendLine("    <!-- 新增/编辑弹窗（控件按运行时配置渲染） -->");
         sb.AppendLine("    <a-modal v-model:open=\"dialogVisible\" :title=\"form.id ? '编辑' : '新增'\" :confirm-loading=\"saving\" @ok=\"onSave\">");
-        sb.AppendLine("      <a-form :model=\"form\" layout=\"vertical\">");
-        foreach (var f in fields)
-        {
-            var required = f.nullable ? "" : " required";
-            var ctrl = f.control switch
-            {
-                "number" => $"<a-input-number v-model:value=\"form.{f.name}\" style=\"width: 100%\" />",
-                "date" => $"<a-date-picker v-model:value=\"form.{f.name}\" show-time value-format=\"YYYY-MM-DD HH:mm:ss\" style=\"width: 100%\" />",
-                "textarea" => $"<a-textarea v-model:value=\"form.{f.name}\" :rows=\"3\" />",
-                "dict" => $"<a-input v-model:value=\"form.{f.name}\" placeholder=\"字典 {f.dictCode}\" />",
-                "switch" => $"<a-switch v-model:checked=\"form.{f.name}\" />",
-                _ => $"<a-input v-model:value=\"form.{f.name}\" />"
-            };
-            sb.AppendLine($"        <a-form-item label=\"{f.label}\" name=\"{f.name}\"{required}>");
-            sb.AppendLine($"          {ctrl}");
-            sb.AppendLine("        </a-form-item>");
-        }
+        sb.AppendLine("      <a-form layout=\"vertical\">");
+        sb.AppendLine("        <a-form-item v-for=\"f in formFields\" :key=\"f.name\" :label=\"f.label\" :name=\"f.name\" :required=\"!f.nullable\">");
+        sb.AppendLine("          <a-input-number v-if=\"ctrlKind(f) === 'number'\" v-model:value=\"form[f.name]\" style=\"width: 100%\" />");
+        sb.AppendLine("          <a-date-picker v-else-if=\"ctrlKind(f) === 'date'\" v-model:value=\"form[f.name]\" show-time value-format=\"YYYY-MM-DD HH:mm:ss\" style=\"width: 100%\" />");
+        sb.AppendLine("          <a-textarea v-else-if=\"ctrlKind(f) === 'textarea'\" v-model:value=\"form[f.name]\" :rows=\"3\" />");
+        sb.AppendLine("          <a-select v-else-if=\"ctrlKind(f) === 'dict'\" v-model:value=\"form[f.name]\" :options=\"dictOptions[f.dictCode] || []\" placeholder=\"请选择\" allow-clear />");
+        sb.AppendLine("          <a-switch v-else-if=\"ctrlKind(f) === 'switch'\" v-model:checked=\"form[f.name]\" />");
+        sb.AppendLine("          <a-input v-else v-model:value=\"form[f.name]\" />");
+        sb.AppendLine("        </a-form-item>");
         sb.AppendLine("      </a-form>");
         sb.AppendLine("    </a-modal>");
         sb.AppendLine("  </div>");
         sb.AppendLine("</template>");
         sb.AppendLine();
         sb.AppendLine("<script setup lang=\"ts\">");
-        sb.AppendLine($"import {{ page{entityName}, get{entityName}, save{entityName}, delete{entityName}, batchDelete{entityName} }} from '@/api/{camel}'");
+        var importNames = $"page{entityName}, get{entityName}, save{entityName}, delete{entityName}, batchDelete{entityName}, get{entityName}Config";
+        if (enh != null && enh.exportEnabled) importNames += $", export{entityName}";
+        if (enh != null && enh.importEnabled) importNames += $", import{entityName}, notifyImportResult";
+        sb.AppendLine($"import {{ {importNames} }} from '@/api/{camel}'");
+        sb.AppendLine("import { request } from '@/api/request'");
         sb.AppendLine("import { message, Modal } from 'ant-design-vue'");
-        sb.AppendLine("import { ref, reactive } from 'vue'");
+        sb.AppendLine("import { ref, reactive, computed } from 'vue'");
         sb.AppendLine();
-        var colItems = listFields.Select(f => $"{{ title: '{f.label}', dataIndex: '{f.name}', key: '{f.name}' }}");
-        sb.AppendLine($"const columns = [");
-        foreach (var c in colItems)
-            sb.AppendLine($"  {c},");
+        sb.AppendLine("// 运行时配置：字段/字典/查询/导入导出按配置渲染，增强配置补配即生效");
+        sb.AppendLine("const config = ref<any>({ fields: [], enhancement: {} })");
+        sb.AppendLine("const fields = computed<any[]>(() => config.value.fields || [])");
+        sb.AppendLine("const enhancement = computed<any>(() => config.value.enhancement || {})");
+        sb.AppendLine("const listColumns = computed(() => [");
+        sb.AppendLine("  ...fields.value.filter((f: any) => f.showInList).map((f: any) => ({ title: f.label, dataIndex: f.name, key: f.name })),");
         sb.AppendLine("  { title: '操作', key: 'action', width: 140 },");
-        sb.AppendLine("];");
-        var boolCols = listFields.Where(f => f.dataType == "bool").Select(f => $"'{f.name}'");
-        sb.AppendLine($"const boolColumns = [{string.Join(", ", boolCols)}];");
+        sb.AppendLine("])");
+        sb.AppendLine("const formFields = computed(() => fields.value)");
+        sb.AppendLine("const boolKeys = computed(() => fields.value.filter((f: any) => f.dataType === 'bool').map((f: any) => f.name))");
+        sb.AppendLine("const dictMap = computed<Record<string, string>>(() => {");
+        sb.AppendLine("  const m: Record<string, string> = {};");
+        sb.AppendLine("  fields.value.filter((f: any) => f.control === 'dict' && f.dictCode).forEach((f: any) => (m[f.name] = f.dictCode));");
+        sb.AppendLine("  return m;");
+        sb.AppendLine("})");
+        sb.AppendLine("const dictOptions = ref<Record<string, any[]>>({})");
+        sb.AppendLine("function ctrlKind(f: any): string {");
+        sb.AppendLine("  if (f.control === 'dict' && f.dictCode) return 'dict'");
+        sb.AppendLine("  if (f.control === 'number' || ['int', 'long', 'decimal'].includes(f.dataType)) return 'number'");
+        sb.AppendLine("  if (f.control === 'date' || f.dataType === 'datetime') return 'date'");
+        sb.AppendLine("  if (f.control === 'textarea') return 'textarea'");
+        sb.AppendLine("  if (f.control === 'switch') return 'switch'");
+        sb.AppendLine("  return 'text'");
+        sb.AppendLine("}");
+        sb.AppendLine("function dictLabel(code: string, value: any): string {");
+        sb.AppendLine("  const hit = (dictOptions.value[code] || []).find((o: any) => String(o.value) === String(value))");
+        sb.AppendLine("  return hit ? hit.label : (value ?? '')");
+        sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("const rows = ref<any[]>([])");
         sb.AppendLine("const loading = ref(false)");
@@ -783,8 +1152,20 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("const selectedRowKeys = ref<any[]>([])");
         sb.AppendLine("const dialogVisible = ref(false)");
         sb.AppendLine("const pagination = reactive({ current: 1, pageSize: 10, total: 0, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` })");
-        sb.AppendLine($"const emptyForm = () => ({{ id: undefined, {string.Join(", ", fields.Select(f => $"{f.name}: {TsInit(f)}"))} }})");
-        sb.AppendLine("const form = ref<any>(emptyForm())");
+        sb.AppendLine("const form = ref<any>({ id: undefined })");
+        sb.AppendLine();
+        sb.AppendLine("async function loadConfig() {");
+        sb.AppendLine($"  config.value = await get{entityName}Config()");
+        sb.AppendLine("  for (const code of Object.values(dictMap.value)) {");
+        sb.AppendLine("    if (!dictOptions.value[code]) {");
+        sb.AppendLine("      try {");
+        sb.AppendLine("        dictOptions.value[code] = await request({ url: `/identity/dict/items/${code}`, method: 'get' })");
+        sb.AppendLine("      } catch {");
+        sb.AppendLine("        dictOptions.value[code] = []");
+        sb.AppendLine("      }");
+        sb.AppendLine("    }");
+        sb.AppendLine("  }");
+        sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("async function loadData() {");
         sb.AppendLine("  loading.value = true");
@@ -797,6 +1178,12 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("  }");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("function resetQuery() {");
+        sb.AppendLine("  keyword.value = ''");
+        sb.AppendLine("  pagination.current = 1");
+        sb.AppendLine("  loadData()");
+        sb.AppendLine("}");
+        sb.AppendLine();
         sb.AppendLine("function onTableChange(p: any) {");
         sb.AppendLine("  pagination.current = p.current");
         sb.AppendLine("  pagination.pageSize = p.pageSize");
@@ -804,7 +1191,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("function openCreate() {");
-        sb.AppendLine("  form.value = emptyForm()");
+        sb.AppendLine("  form.value = { id: undefined }");
         sb.AppendLine("  dialogVisible.value = true");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -844,8 +1231,29 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("    }");
         sb.AppendLine("  })");
         sb.AppendLine("}");
+        if (enh != null && enh.exportEnabled)
+        {
+            sb.AppendLine();
+            sb.AppendLine("async function onExport() {");
+            sb.AppendLine($"  await export{entityName}(keyword.value || undefined)");
+            sb.AppendLine("  message.success('导出成功')");
+            sb.AppendLine("}");
+        }
+        if (enh != null && enh.importEnabled)
+        {
+            sb.AppendLine();
+            sb.AppendLine("function onImport(file: File) {");
+            sb.AppendLine($"  import{entityName}(file)");
+            sb.AppendLine("    .then((res: any) => {");
+            sb.AppendLine("      notifyImportResult(res)");
+            sb.AppendLine("      loadData()");
+            sb.AppendLine("    })");
+            sb.AppendLine("    .catch(() => {})");
+            sb.AppendLine("  return false; // 阻止 a-upload 自动上传，改走手工导入");
+            sb.AppendLine("}");
+        }
         sb.AppendLine();
-        sb.AppendLine("loadData()");
+        sb.AppendLine("loadConfig().then(loadData)");
         sb.AppendLine("</script>");
         return sb.ToString();
     }

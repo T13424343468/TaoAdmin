@@ -597,4 +597,116 @@ public class CodeGenAppServiceTests
         var e3 = new SysCodeGenTable { FieldsJson = "null" };
         Assert.Empty(e3.ParseFields());
     }
+
+    // ==================== ⑲增强配置：补配即生效（导入导出/运行时配置） ====================
+
+    [Fact]
+    public async Task SaveDesign_Enhancement_Persist_AndClear()
+    {
+        var (svc, _) = Create();
+        // 带增强配置保存
+        var req = ValidDesign();
+        req.enhancement = new CodegenEnhancementConfig { importEnabled = true, exportEnabled = true };
+        var id = await svc.SaveDesignAsync(req);
+        var row = await svc.GetAsync(id);
+        var enh = row.ParseEnhancement();
+        Assert.NotNull(enh);
+        Assert.True(enh!.importEnabled);
+        Assert.True(enh.exportEnabled);
+
+        // 传 null 清空
+        var clear = ValidDesign();
+        clear.id = id;
+        clear.enhancement = null;
+        await svc.SaveDesignAsync(clear);
+        Assert.Null((await svc.GetAsync(id)).ParseEnhancement());
+    }
+
+    [Fact]
+    public void ParseEnhancement_InvalidJson_ShouldFallbackNull()
+    {
+        Assert.Null(new SysCodeGenTable { EnhancementJson = null }.ParseEnhancement());
+        Assert.Null(new SysCodeGenTable { EnhancementJson = "not json" }.ParseEnhancement());
+        Assert.Null(new SysCodeGenTable { EnhancementJson = "null" }.ParseEnhancement());
+    }
+
+    [Fact]
+    public async Task GetConfig_ShouldReturnFields_AndEnhancement()
+    {
+        var (svc, _) = Create();
+        var req = ValidDesign();
+        req.enhancement = new CodegenEnhancementConfig { importEnabled = false, exportEnabled = true };
+        var id = await svc.SaveDesignAsync(req);
+
+        var config = await svc.GetConfigAsync(id);
+        Assert.Equal(id.ToString(), config.id);
+        Assert.Equal("biz_contract", config.tableName);
+        Assert.Equal("合同管理", config.displayName);
+        Assert.Equal(4, config.fields.Count);
+        Assert.False(config.enhancement.importEnabled);
+        Assert.True(config.enhancement.exportEnabled);
+    }
+
+    [Fact]
+    public async Task Generate_WithEnhancement_ShouldEmitExcelStack_AndRuntimeConfig()
+    {
+        var (svc, _) = Create();
+        var req = ValidDesign();
+        req.enhancement = new CodegenEnhancementConfig { importEnabled = true, exportEnabled = true };
+        var id = await svc.SaveDesignAsync(req);
+        var gen = await svc.GenerateAsync(id);
+
+        // 服务：导入导出支撑代码（MiniExcel 模板/导出/逐行校验导入）
+        var service = gen.files.First(f => f.path.EndsWith("BizContractAppService.cs"));
+        Assert.Contains("using MiniExcelLibs;", service.content);
+        Assert.Contains("ImportBinders", service.content);
+        Assert.Contains("BuildTemplateAsync", service.content);
+        Assert.Contains("ImportAsync", service.content);
+        Assert.Contains("ExportAsync", service.content);
+        Assert.Contains("BizContractImportResultDto", service.content);
+
+        // 控制器：export / import-template / import 端点
+        var ctrl = gen.files.First(f => f.path.EndsWith("BizContractController.cs"));
+        Assert.Contains("[HttpGet(\"export\")]", ctrl.content);
+        Assert.Contains("[HttpGet(\"import-template\")]", ctrl.content);
+        Assert.Contains("[HttpPost(\"import\")]", ctrl.content);
+
+        // 前端 api：运行时配置读取 + 导入导出 + 结果提示
+        var api = gen.files.First(f => f.path.EndsWith("/api/bizContract.ts"));
+        Assert.Contains("getBizContractConfig", api.content);
+        Assert.Contains("exportBizContract", api.content);
+        Assert.Contains("downloadBizContractTemplate", api.content);
+        Assert.Contains("importBizContract", api.content);
+        Assert.Contains("notifyImportResult", api.content);
+        Assert.Contains("saveBlob", api.content);
+
+        // 生成页：配置驱动渲染 + 导入导出按钮
+        var page = gen.files.First(f => f.path.EndsWith("views/bizContract/index.vue"));
+        Assert.Contains("loadConfig", page.content);
+        Assert.Contains("dictLabel", page.content);
+        Assert.Contains("onExport", page.content);
+        Assert.Contains("onImport", page.content);
+        Assert.Contains("enhancement.exportEnabled", page.content);
+        Assert.Contains("enhancement.importEnabled", page.content);
+        Assert.Contains("/identity/dict/items/", page.content);
+    }
+
+    [Fact]
+    public async Task Generate_WithoutEnhancement_ShouldNotEmitExcelStack()
+    {
+        var (svc, _) = Create();
+        var id = await svc.SaveDesignAsync(ValidDesign());
+        var gen = await svc.GenerateAsync(id);
+
+        var service = gen.files.First(f => f.path.EndsWith("BizContractAppService.cs"));
+        Assert.DoesNotContain("MiniExcel", service.content);
+        Assert.DoesNotContain("ExportAsync", service.content);
+        var ctrl = gen.files.First(f => f.path.EndsWith("BizContractController.cs"));
+        Assert.DoesNotContain("import-template", ctrl.content);
+        var api = gen.files.First(f => f.path.EndsWith("/api/bizContract.ts"));
+        Assert.DoesNotContain("exportBizContract", api.content);
+        Assert.DoesNotContain("notifyImportResult", api.content);
+        // 运行时配置读取函数始终生成（配置驱动页面依赖）
+        Assert.Contains("getBizContractConfig", api.content);
+    }
 }

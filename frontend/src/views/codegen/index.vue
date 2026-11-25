@@ -19,6 +19,64 @@
 
       <!-- ============ 生成记录 ============ -->
       <a-tab-pane key="records" title="生成记录" />
+
+      <!-- ============ 增强配置（⑲补配即生效） ============ -->
+      <a-tab-pane key="enhance" title="增强配置">
+        <div class="table-operator">
+          <a-select
+            v-model:value="enhDesignId"
+            placeholder="选择要补配的模块"
+            style="width: 340px"
+            :options="enhOptions"
+            show-search
+            option-filter-prop="label"
+            @change="onEnhSelect"
+          />
+        </div>
+        <template v-if="enhDetail">
+          <a-alert
+            type="info"
+            show-icon
+            style="margin-bottom: 12px"
+            message="补配即生效：生成页运行时读取本配置渲染字段/字典/查询与导入导出按钮，无需重新生成；若该模块此前已生成且未带导入导出后端接口，重新生成一次即可补齐。"
+          />
+          <a-form layout="inline" style="margin-bottom: 12px">
+            <a-form-item label="Excel 导出">
+              <a-switch v-model:checked="enhExport" />
+            </a-form-item>
+            <a-form-item label="Excel 导入（模板下载 + 逐行校验）">
+              <a-switch v-model:checked="enhImport" />
+            </a-form-item>
+          </a-form>
+          <a-table
+            :data-source="enhFields"
+            :columns="enhColumns"
+            :pagination="false"
+            row-key="_key"
+            size="small"
+            :scroll="{ x: 720 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'control'">
+                {{ controlLabel(record.control) }}
+              </template>
+              <template v-else-if="column.key === 'dictCode'">
+                <a-input v-if="record.control === 'dict'" v-model:value="record.dictCode" placeholder="字典编码" size="small" />
+                <span v-else>-</span>
+              </template>
+              <template v-else-if="column.key === 'queryType'">
+                <a-select v-model:value="record.queryType" style="width: 90px" size="small">
+                  <a-select-option value="none">不查询</a-select-option>
+                  <a-select-option value="eq">精确</a-select-option>
+                  <a-select-option value="like">模糊</a-select-option>
+                  <a-select-option value="range">范围</a-select-option>
+                </a-select>
+              </template>
+            </template>
+          </a-table>
+          <a-button type="primary" style="margin-top: 12px" :loading="enhSaving" @click="onEnhSave">保存增强配置</a-button>
+        </template>
+      </a-tab-pane>
     </a-tabs>
 
     <template #table="{ scrollY }">
@@ -427,13 +485,14 @@ import {
   type CodegenDesign,
   type CodegenFieldDesign,
   type CodegenDetailTableConfig,
+  type CodegenEnhancementConfig,
   type CodegenSyncResult,
   type CodegenGenerateResult,
   type CodegenRecord,
 } from '@/api/codegen';
 import { message } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted } from 'vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 import PageLayout from '@/components/PageLayout/index.vue';
 
@@ -849,6 +908,90 @@ async function openRecordDetail(record: CodegenRecord) {
   recordFiles.value = detail.files || [];
   recordVisible.value = true;
 }
+
+// ============ 增强配置（⑲补配即生效：字典关联/查询配置/导入导出） ============
+const enhDesignId = ref<string>();
+const enhDetail = ref<CodegenDesign | null>(null);
+const enhFields = ref<(CodegenFieldDesign & { _key: number })[]>([]);
+const enhImport = ref(false);
+const enhExport = ref(false);
+const enhSaving = ref(false);
+
+const enhOptions = computed(() =>
+  allDesigns.value.map((d) => ({ label: `${d.displayName}（${d.tableName}）`, value: d.id })),
+);
+
+const enhColumns = [
+  { title: '字段名', dataIndex: 'name', key: 'name', width: 150 },
+  { title: '显示名', dataIndex: 'label', key: 'label', width: 140 },
+  { title: '控件', key: 'control', width: 100 },
+  { title: '字典编码', key: 'dictCode', width: 160 },
+  { title: '查询方式', key: 'queryType', width: 110 },
+];
+
+function controlLabel(control: string): string {
+  const map: Record<string, string> = {
+    text: '文本',
+    number: '数字',
+    date: '日期',
+    textarea: '多行',
+    dict: '字典',
+    switch: '开关',
+  };
+  return map[control] || control;
+}
+
+function safeParseEnh(json: string): CodegenEnhancementConfig | null {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+async function onEnhSelect(id: string) {
+  const detail = await getCodegenDesign(id);
+  enhDetail.value = detail;
+  fieldKeySeq = 0;
+  enhFields.value = (detail.fieldsJson && parseFieldCount(detail.fieldsJson) > 0 ? JSON.parse(detail.fieldsJson) : []).map(
+    (f: any) => ({ ...f, _key: ++fieldKeySeq }),
+  );
+  const enh = detail.enhancementJson ? safeParseEnh(detail.enhancementJson) : null;
+  enhImport.value = !!enh?.importEnabled;
+  enhExport.value = !!enh?.exportEnabled;
+}
+
+async function onEnhSave() {
+  const detail = enhDetail.value;
+  if (!detail) return;
+  // 字典控件字段必须带字典编码
+  const missingDict = enhFields.value.find((f) => f.control === 'dict' && !f.dictCode?.trim());
+  if (missingDict) {
+    message.warning(`字段「${missingDict.label || missingDict.name}」为字典控件，请填写字典编码`);
+    return;
+  }
+  enhSaving.value = true;
+  try {
+    // 主从配置原样回传（后端 SaveMasterDetailAsync 以请求为准，缺省即清空）
+    const md = detail.masterDetailJson ? safeParseMd(detail.masterDetailJson) : null;
+    await saveCodegenDesign({
+      id: detail.id,
+      tableName: detail.tableName,
+      displayName: detail.displayName,
+      remark: detail.remark,
+      fields: enhFields.value.map(({ _key, ...f }: any) => f as CodegenFieldDesign),
+      masterDetail: md?.details.length ? { details: md.details } : undefined,
+      enhancement: { importEnabled: enhImport.value, exportEnabled: enhExport.value },
+    });
+    message.success('增强配置已保存：生成页运行时读取配置，补配即生效');
+  } finally {
+    enhSaving.value = false;
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'enhance') loadAllDesigns();
+});
 
 onMounted(() => {
   loadDesigns();

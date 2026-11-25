@@ -38,6 +38,21 @@ public class CodeGenController : BaseApiController
     public async Task<ApiResult<SysCodeGenTable>> GetDesign(string id)
         => ApiOk(await _svc.GetAsync(long.Parse(id)));
 
+    /// <summary>
+    /// 生成模块运行时配置（⑲增强配置「补配即生效」读取口）：
+    /// 生成页挂载时按自身权限码拉取，按配置渲染字段/字典/查询/导入导出，补配后无需重新生成。
+    /// 权限按设计动态校验（gen:{table}:manage），与该模块其他接口同码。
+    /// </summary>
+    [HttpGet("designs/{id}/config")]
+    public async Task<ApiResult<CodegenModuleConfig>> GetConfig(string id)
+    {
+        var config = await _svc.GetConfigAsync(long.Parse(id));
+        var perm = $"gen:{config.tableName}:manage";
+        if (!PermissionAuthorizationHandler.HasApiPermission(User, perm))
+            throw new TaoAdmin.Domain.DomainException("无该模块访问权限");
+        return ApiOk(config);
+    }
+
     /// <summary>删除表设计（软删，不动已生成的库表与代码）</summary>
     [HttpDelete("designs/{id}")]
     [Permission("sys:codegen:manage")]

@@ -34,6 +34,8 @@ export interface CodegenDesign {
   isMasterDetail?: boolean;
   /** 主从关系配置 JSON（CodegenMasterDetailConfig） */
   masterDetailJson?: string;
+  /** 增强配置 JSON（CodegenEnhancementConfig） */
+  enhancementJson?: string;
 }
 
 /** 单个从表配置 */
@@ -55,6 +57,14 @@ export interface CodegenMasterDetailConfig {
   details: CodegenDetailTableConfig[];
 }
 
+/** 增强配置（⑲补配即生效：导入导出等，不动已生成标准代码） */
+export interface CodegenEnhancementConfig {
+  /** 启用 Excel 导入（模板下载 + 逐行校验导入） */
+  importEnabled: boolean;
+  /** 启用 Excel 导出 */
+  exportEnabled: boolean;
+}
+
 /** 表设计保存请求 */
 export interface CodegenDesignSave {
   id?: string;
@@ -64,6 +74,8 @@ export interface CodegenDesignSave {
   remark?: string;
   /** 主从关系配置（主表视角；不传表示单表设计） */
   masterDetail?: CodegenMasterDetailConfig;
+  /** 增强配置（null 表示清空） */
+  enhancement?: CodegenEnhancementConfig;
 }
 
 /** 同步建库结果 */

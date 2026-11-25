@@ -40,6 +40,24 @@ public class SysCodeGenTable : BaseEntity
     [SugarColumn(IsNullable = true, ColumnDescription = "是否主从表主表")]
     public bool IsMasterDetail { get; set; }
 
+    /// <summary>增强配置（JSON：CodegenEnhancementConfig；导入导出等补配，生成页运行时读取，补配即生效）</summary>
+    [SugarColumn(ColumnDataType = "TEXT", IsNullable = true, ColumnDescription = "增强配置JSON")]
+    public string? EnhancementJson { get; set; }
+
+    /// <summary>解析增强配置（损坏或为空时返回 null）</summary>
+    public CodegenEnhancementConfig? ParseEnhancement()
+    {
+        if (string.IsNullOrWhiteSpace(EnhancementJson)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<CodegenEnhancementConfig>(EnhancementJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>解析主从关系配置（损坏或为空时返回 null）</summary>
     public CodegenMasterDetailConfig? ParseMasterDetail()
     {
@@ -124,4 +142,14 @@ public class CodegenDetailTableConfig
     public string dataSource { get; set; } = "free";
     /// <summary>字典编码（dataSource=dict 时必填）</summary>
     public string? dictCode { get; set; }
+}
+
+/// <summary>增强配置（⑲增强配置入口：给已生成模块补导入导出等，不动已生成标准代码，补配即生效）。
+/// 字典关联与查询配置直接落在字段设计（CodegenFieldDesign.dictCode/queryType）上，运行时随配置接口下发。</summary>
+public class CodegenEnhancementConfig
+{
+    /// <summary>是否启用 Excel 导入（生成页出现导入按钮，后端带导入接口）</summary>
+    public bool importEnabled { get; set; }
+    /// <summary>是否启用 Excel 导出（生成页出现导出按钮，后端带导出接口）</summary>
+    public bool exportEnabled { get; set; }
 }
