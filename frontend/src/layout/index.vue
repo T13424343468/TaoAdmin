@@ -162,30 +162,38 @@
         </div>
       </a-layout-header>
 
-      <!-- 内容区：多页签导航 + keep-alive 缓存已访问页面；页签支持右键批量关闭 -->
-      <div class="tab-bar" :class="{ 'tab-bar-dark': themeStore.isDark }">
-        <a-dropdown v-for="tab in tabsStore.tabs" :key="tab.path" :trigger="['contextMenu']">
-          <div
-            class="tab-item"
-            :class="{ active: tab.path === tabsStore.active }"
-            @click="onTabClick(tab.path)"
-          >
-            <span class="tab-title">{{ tab.title }}</span>
-            <close-outlined
-              v-if="!tab.affix"
-              class="tab-close"
-              @click.stop="onTabClose(tab.path)"
-            />
-          </div>
-          <template #overlay>
-            <a-menu @click="onTabMenuClick($event.key, tab.path)">
-              <a-menu-item key="closeLeft" :disabled="closableLeftCount(tab.path) === 0">关闭左侧</a-menu-item>
-              <a-menu-item key="closeRight" :disabled="closableRightCount(tab.path) === 0">关闭右侧</a-menu-item>
-              <a-menu-item key="closeOthers" :disabled="closableOthersCount(tab.path) === 0">关闭其他</a-menu-item>
-              <a-menu-item key="closeAll" :disabled="closableAllCount() === 0">全部关闭</a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
+      <!-- 内容区：多页签导航 + keep-alive 缓存已访问页面；页签支持右键批量关闭（自绘菜单：页签与页签间空白处均可用） -->
+      <div class="tab-bar" :class="{ 'tab-bar-dark': themeStore.isDark }" @contextmenu.prevent="openTabMenu($event, tabsStore.active)">
+        <div
+          v-for="tab in tabsStore.tabs"
+          :key="tab.path"
+          class="tab-item"
+          :class="{ active: tab.path === tabsStore.active }"
+          @click="onTabClick(tab.path)"
+          @contextmenu.prevent="openTabMenu($event, tab.path)"
+        >
+          <span class="tab-title">{{ tab.title }}</span>
+          <close-outlined
+            v-if="!tab.affix"
+            class="tab-close"
+            @click.stop="onTabClose(tab.path)"
+          />
+        </div>
+      </div>
+      <!-- 自绘右键菜单：透明遮罩负责点空白/再次右键关闭，菜单本体浮在其上 -->
+      <div v-if="tabMenu.visible" class="tab-context-backdrop" @click="closeTabMenu" @contextmenu.prevent="closeTabMenu" />
+      <div
+        v-if="tabMenu.visible"
+        class="tab-context-menu"
+        :class="{ 'tab-context-menu-dark': themeStore.isDark }"
+        :style="{ left: tabMenu.x + 'px', top: tabMenu.y + 'px' }"
+      >
+        <a-menu :theme="themeStore.isDark ? 'dark' : 'light'" @click="onTabMenuClick($event.key, tabMenu.path)">
+          <a-menu-item key="closeLeft" :disabled="closableLeftCount(tabMenu.path) === 0">关闭左侧</a-menu-item>
+          <a-menu-item key="closeRight" :disabled="closableRightCount(tabMenu.path) === 0">关闭右侧</a-menu-item>
+          <a-menu-item key="closeOthers" :disabled="closableOthersCount(tabMenu.path) === 0">关闭其他</a-menu-item>
+          <a-menu-item key="closeAll" :disabled="closableAllCount() === 0">全部关闭</a-menu-item>
+        </a-menu>
       </div>
       <a-layout-content class="app-content" :class="{ 'app-content-dark': themeStore.isDark }">
         <router-view v-slot="{ Component, route: viewRoute }">
@@ -426,7 +434,21 @@ function onTabClose(path: string) {
   if (wasActive) router.push(tabsStore.active);
 }
 
-// ============ 页签右键批量关闭（老板反馈②） ============
+// ============ 页签右键批量关闭（老板反馈②；自绘菜单替代 a-dropdown contextMenu，防浏览器原生菜单抢占） ============
+
+/** 右键菜单状态：x/y 为弹出位置，path 为锚点页签 */
+const tabMenu = reactive({ visible: false, x: 0, y: 0, path: '' });
+
+function openTabMenu(e: MouseEvent, path: string) {
+  tabMenu.x = Math.min(e.clientX, window.innerWidth - 170);
+  tabMenu.y = Math.min(e.clientY, window.innerHeight - 200);
+  tabMenu.path = path;
+  tabMenu.visible = true;
+}
+
+function closeTabMenu() {
+  tabMenu.visible = false;
+}
 
 /** 锚点左侧可关闭页签数 */
 function closableLeftCount(path: string): number {
@@ -467,6 +489,7 @@ function onTabMenuClick(action: string, path: string) {
     default:
       return;
   }
+  closeTabMenu();
   // 批量关闭后激活页签可能变化，路由跟着走
   if (route.path !== tabsStore.active) router.push(tabsStore.active);
 }
@@ -793,6 +816,27 @@ async function onForceChangePwd() {
         opacity: 1;
       }
     }
+  }
+}
+
+// 页签右键自绘菜单（遮罩 + 菜单本体）
+.tab-context-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.tab-context-menu {
+  position: fixed;
+  z-index: 1001;
+  min-width: 140px;
+  padding: 4px 0;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+
+  &.tab-context-menu-dark {
+    background: #1f1f1f;
   }
 }
 
