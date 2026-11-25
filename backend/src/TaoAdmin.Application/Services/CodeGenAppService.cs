@@ -189,7 +189,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             foreach (var f in fields)
             {
                 if (existing.Contains(f.name.ToLowerInvariant())) continue;
-                var colSql = BuildColumnSql(f);
+                var colSql = BuildColumnSql(f, sqliteAddColumn: IsSqliteDialect);
                 await db.Ado.ExecuteCommandAsync($"ALTER TABLE `{table}` ADD COLUMN {colSql};");
                 result.executed = true;
                 result.actions.Add($"已加列 {f.name}（{f.dataType}）");
@@ -339,16 +339,15 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
 
     private async Task<bool> TableExistsAsync(string table)
     {
+        // 统一走 SqlSugar Ado 通道：生产 IsAutoCloseConnection=true 时裸连接是关闭的，
+        // 直接拿 Connection 强转执行会报连接错误（单机挂账根因），由 Ado 负责开关连接
         if (IsSqliteDialect)
         {
-            var conn = (Microsoft.Data.Sqlite.SqliteConnection)db.Ado.Connection;
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(1) FROM sqlite_master WHERE type='table' AND name=@name";
-            cmd.Parameters.AddWithValue("@name", table);
-            return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+            var n = await db.Ado.SqlQueryAsync<int>($"SELECT COUNT(1) FROM sqlite_master WHERE type='table' AND name = '{table.Replace("'", "''")}'");
+            return n.FirstOrDefault() > 0;
         }
-        var n = await db.Ado.SqlQueryAsync<int>($"SELECT COUNT(1) FROM information_schema.tables WHERE table_name = '{table.Replace("'", "''")}'");
-        return n.FirstOrDefault() > 0;
+        var count = await db.Ado.SqlQueryAsync<int>($"SELECT COUNT(1) FROM information_schema.tables WHERE table_name = '{table.Replace("'", "''")}'");
+        return count.FirstOrDefault() > 0;
     }
 
     private async Task<HashSet<string>> GetExistingColumnsAsync(string table)
@@ -356,11 +355,9 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         var set = new HashSet<string>();
         if (IsSqliteDialect)
         {
-            var conn = (Microsoft.Data.Sqlite.SqliteConnection)db.Ado.Connection;
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"PRAGMA table_info(`{table.Replace("`", "``")}`)";
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read()) set.Add(reader.GetString(1).ToLowerInvariant());
+            // pragma_table_info 表值函数（SQLite 3.16+），同样走 Ado 通道避免裸连接关闭问题
+            var cols = await db.Ado.SqlQueryAsync<string>($"SELECT LOWER(name) FROM pragma_table_info('{table.Replace("'", "''")}')");
+            foreach (var c in cols) set.Add(c);
         }
         else
         {
@@ -385,7 +382,8 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         return sb.ToString();
     }
 
-    private static string BuildColumnSql(CodegenFieldDesign f)
+    /// <param name="sqliteAddColumn">SQLite ALTER TABLE ADD COLUMN 场景：NOT NULL 且无默认值的列必须补默认值（SQLite 不允许隐式 NULL 默认）</param>
+    private static string BuildColumnSql(CodegenFieldDesign f, bool sqliteAddColumn = false)
     {
         var type = f.dataType switch
         {
@@ -400,8 +398,18 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         };
         var nullable = f.nullable ? " NULL" : " NOT NULL";
         var def = string.IsNullOrWhiteSpace(f.defaultValue) ? "" : $" DEFAULT {FormatDefault(f)}";
+        if (sqliteAddColumn && !f.nullable && def == "")
+            def = $" DEFAULT {SqliteAddColumnDefault(f.dataType)}";
         return $"`{f.name}` {type}{nullable}{def}";
     }
+
+    /// <summary>SQLite 加列场景的类型化兜底默认值（ADD COLUMN 不允许 CURRENT_TIMESTAMP 等表达式默认）</summary>
+    private static string SqliteAddColumnDefault(string dataType) => dataType switch
+    {
+        "int" or "long" or "decimal" or "bool" => "0",
+        "datetime" => "'1970-01-01 00:00:00'",
+        _ => "''"
+    };
 
     private static string FormatDefault(CodegenFieldDesign f) => f.dataType switch
     {

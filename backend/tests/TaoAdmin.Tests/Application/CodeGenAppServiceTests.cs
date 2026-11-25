@@ -185,6 +185,46 @@ public class CodeGenAppServiceTests
     }
 
     [Fact]
+    public async Task SyncToDatabase_SqliteAutoClose_ShouldNotThrowConnectionError()
+    {
+        // 复现单机口径：IsAutoCloseConnection=true 时裸连接空闲即关闭，
+        // 探测/加列必须走 SqlSugar Ado 通道（修复前此处抛连接错误）
+        var file = Path.Combine(Path.GetTempPath(), $"codegen_sync_{Guid.NewGuid():N}.db");
+        try
+        {
+            var db = new SqlSugarClient(new ConnectionConfig
+            {
+                ConnectionString = $"DataSource={file}",
+                DbType = SqlSugar.DbType.Sqlite,
+                IsAutoCloseConnection = true
+            });
+            db.CodeFirst.InitTables<SysCodeGenTable, SysCodeGenRecord>();
+            var svc = new CodeGenAppService(db, new SnowflakeIdGenerator(1, 1));
+
+            var id = await svc.SaveDesignAsync(ValidDesign());
+            var first = await svc.SyncToDatabaseAsync(id);
+            Assert.True(first.executed);
+
+            // 二次同步走列探测分支；加 NOT NULL 无默认值列（SQLite 须补默认值才允许 ADD COLUMN）
+            var req = ValidDesign();
+            req.id = id;
+            req.fields.Add(new CodegenFieldDesign { name = "owner", label = "负责人", dataType = "string", length = 50, nullable = false, control = "text" });
+            await svc.SaveDesignAsync(req);
+            var second = await svc.SyncToDatabaseAsync(id);
+            Assert.True(second.executed);
+            Assert.Contains(second.actions, a => a.Contains("已加列 owner"));
+
+            // 幂等收尾：再跑一次不再有动作
+            var third = await svc.SyncToDatabaseAsync(id);
+            Assert.False(third.executed);
+        }
+        finally
+        {
+            if (File.Exists(file)) File.Delete(file);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteDestructive_ShouldRejectNonAlter_AndMultiStatement()
     {
         var (svc, _) = Create();
