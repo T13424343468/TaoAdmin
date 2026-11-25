@@ -25,7 +25,7 @@
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
-          <component :is="record.icon || 'AppstoreOutlined'" v-if="record.icon" style="margin-right: 6px" />
+          <component :is="rowIcon(record.icon)" v-if="record.icon" style="margin-right: 6px" />
           {{ record.name }}
         </template>
         <template v-else-if="column.key === 'type'">
@@ -49,7 +49,7 @@
         </template>
         <template v-else-if="column.key === 'action'">
           <a-space>
-            <a v-permission="'sys:menu:add'" @click="openForm(null, record.id)">添加子项</a>
+            <a v-permission="'sys:menu:add'" @click="openForm(null, record.id)">新增子项</a>
             <a v-permission="'sys:menu:edit'" @click="openForm(record)">编辑</a>
             <a-popconfirm
               v-permission="'sys:menu:delete'"
@@ -116,7 +116,7 @@
           <a-row :gutter="16">
             <a-col :span="12">
               <a-form-item label="图标">
-                <a-input v-model:value="form.icon" placeholder="Ant Design 图标名，如 UserOutlined" />
+                <IconPicker v-model:value="form.icon" placeholder="搜索图标名称，如 User" />
               </a-form-item>
             </a-col>
             <a-col :span="12">
@@ -147,12 +147,17 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { message } from 'ant-design-vue';
 import { PlusOutlined, AppstoreOutlined } from '@ant-design/icons-vue';
+import IconPicker from '@/components/IconPicker/index.vue';
+import { resolveMenuIcon } from '@/utils/menuIcons';
 import { getMenuTree, saveMenu, deleteMenu, type MenuRecord } from '@/api/system';
 
 const loading = ref(false);
 const menuTree = ref<MenuRecord[]>([]);
 const expandedKeys = ref<string[]>([]);
 const expandedAll = ref(true);
+
+/** 表格名称列图标：语义名 → 组件（与侧边栏同口径，解析不到不渲染） */
+const rowIcon = (name?: string) => resolveMenuIcon(name);
 
 const columns = [
   { title: '名称', key: 'name', width: 220 },

@@ -253,7 +253,6 @@ import { ref, reactive, computed, watch, h, onMounted, onBeforeUnmount } from 'v
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import type { ItemType } from 'ant-design-vue';
-import * as AntIcons from '@ant-design/icons-vue';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -270,6 +269,7 @@ import { useThemeStore, PRIMARY_PRESETS } from '@/stores/theme';
 import { useTabsStore } from '@/stores/tabs';
 import { useLockStore } from '@/stores/lock';
 import { buildMenuItems, type RouteLike, type MenuNode } from '@/utils/menuBuilder';
+import { renderMenuIcon } from '@/utils/menuIcons';
 import { buildFileUrl } from '@/api/taoFiles';
 import { getLatestAnnouncements, type AnnouncementItem } from '@/api/announcement';
 import GlobalSearch from '@/components/GlobalSearch.vue';
@@ -359,23 +359,11 @@ const selectedKeys = ref<string[]>([route.path]);
 const openKeys = ref<string[]>([]);
 
 /**
- * 图标扩展表：菜单图标名 → 图标库实际组件名。
- * 图标库没有的语义名（如 Timer）在这里登记一行即可生效，无需改菜单数据——
- * 图标解析支持扩展，新增映射走这张表（老板令 2026-11-22）。
+ * 图标解析统一走 utils/menuIcons 注册表（语义名 → 图标库 → 扩展表 → 自绘 SVG）。
+ * 扩展映射与自绘图标在注册表维护，此处不再单独建表（老板令 2026-11-25 收口）。
  */
-const ICON_EXTENSIONS: Record<string, string> = {
-  Timer: 'ClockCircleOutlined',
-};
-
 function renderIcon(name?: string) {
-  if (!name) return undefined;
-  // 菜单图标库存的是语义名（如 Setting/FolderOpen），图标组件实际导出 XxxOutlined；
-  // 库里查不到时按扩展表换算，仍无则不渲染（不报错）
-  const icon =
-    (AntIcons as any)[name] ||
-    (AntIcons as any)[`${name}Outlined`] ||
-    (ICON_EXTENSIONS[name] ? (AntIcons as any)[ICON_EXTENSIONS[name]] : undefined);
-  return icon ? () => h(icon) : undefined;
+  return renderMenuIcon(name);
 }
 
 /**

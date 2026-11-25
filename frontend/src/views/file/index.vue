@@ -60,7 +60,7 @@
       :loading="loading"
       :pagination="pagination"
       row-key="id"
-      size="small"
+      size="middle"
       :row-selection="{ selectedRowKeys, onChange: onTableSelectChange }"
       @change="onTableChange"
     >
@@ -108,7 +108,7 @@
       :loading="recycleLoading"
       :pagination="recyclePagination"
       row-key="id"
-      size="small"
+      size="middle"
       @change="onRecycleTableChange"
     >
       <template #bodyCell="{ column, record }">

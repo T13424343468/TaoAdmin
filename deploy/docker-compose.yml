@@ -113,8 +113,11 @@ services:
       - ReverseProxy__Clusters__identity__Destinations__d1__Address=http://identity:5001/
       - ReverseProxy__Clusters__task__Destinations__d1__Address=http://task:5002/
       - Elasticsearch__Uri=http://elasticsearch:9200
+      # 接口文档：容器内来源 IP 是 Docker 网桥网关（非回环），LocalOnly 会误杀 127.0.0.1 的宿主机访问；
+      # 放开中间件检查，由下方 127.0.0.1 回环端口绑定兜底（仅本机可达，LAN 不可见）
+      - DocsAccess__Mode=Open
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       # 共享日志卷：与 identity/task 同卷，日志中心可聚合读取（老板反馈⑦）
       - service-logs:/app/logs
@@ -144,11 +147,14 @@ services:
       - Monitor__Services__gateway=http://gateway:5000
       - Monitor__Services__identity=http://localhost:5001
       - Monitor__Services__task=http://task:5002
+      # 接口文档：容器内来源 IP 是 Docker 网桥网关（非回环），LocalOnly 会误杀 127.0.0.1 的宿主机访问；
+      # 放开中间件检查，由下方 127.0.0.1 回环端口绑定兜底（仅本机可达，LAN 不可见）
+      - DocsAccess__Mode=Open
     volumes:
       # 共享日志卷：三个服务都写 /app/logs，日志中心聚合读取（老板反馈⑦）
       - service-logs:/app/logs
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
     depends_on:
       mysql:
         condition: service_healthy
@@ -170,8 +176,10 @@ services:
       - ConnectionStrings__MySql=Server=mysql;Port=3306;Database=tao_admin;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;SslMode=none;AllowPublicKeyRetrieval=True;
       - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - Elasticsearch__Uri=http://elasticsearch:9200
+      # 接口文档：同 identity 口径，回环绑定兜底（仅本机可达，LAN 不可见）
+      - DocsAccess__Mode=Open
     ports:
-      - "5002:5002"
+      - "127.0.0.1:5002:5002"
     volumes:
       # 共享日志卷：与 identity/gateway 同卷，日志中心可聚合读取（老板反馈⑦）
       - service-logs:/app/logs
@@ -192,8 +200,9 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5003
       - ConnectionStrings__MySql=Server=mysql;Port=3306;Database=tao_files;User ID=root;Password=${MYSQL_ROOT_PASSWORD:-Micro@2026};Character Set=utf8mb4;SslMode=none;AllowPublicKeyRetrieval=True;
+    # 文件中心无 DocsAccess 中间件，文档端点原本对 LAN 开放；改回环绑定收紧为仅本机
     ports:
-      - "5003:5003"
+      - "127.0.0.1:5003:5003"
     depends_on:
       mysql:
         condition: service_healthy

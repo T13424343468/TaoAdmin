@@ -16,7 +16,7 @@
       :loading="loading"
       :pagination="pagination"
       row-key="id"
-      size="small"
+      size="middle"
       :scroll="{ x: 1200 }"
       :custom-row="customRow"
       @change="onTableChange"

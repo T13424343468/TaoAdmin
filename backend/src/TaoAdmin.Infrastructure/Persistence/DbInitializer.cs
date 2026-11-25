@@ -50,6 +50,8 @@ public static class DbInitializer
         SeedCodeGenMenu(db, snowflake);
         // 菜单归并（老板反馈⑨）：示例类页面（租户/站内消息/工作流）单独成「示例演示」模块
         RegroupDemoMenus(db, snowflake);
+        // 菜单图标回填（老板令 2026-11-25 3f：左侧所有菜单必须有图标）——新库种子与存量库统一走这里
+        BackfillMenuIcons(db);
 
         // 接口资源：启动时反射扫描真实控制器接口，增量同步进 SysApi（新增补录、消失停用）
         ApiEndpointScanner.SyncApis(db, snowflake, apiScanAssemblies);
@@ -382,6 +384,51 @@ public static class DbInitializer
             menu.UpdatedAt = DateTime.Now;
             db.Updateable(menu).ExecuteCommand();
         }
+    }
+
+    /// <summary>
+    /// 菜单图标回填（老板令 2026-11-25 3f：左侧所有菜单必须有图标）。
+    /// 按组件路径幂等回填：Icon 为空且命中映射表才更新，用户自选图标不被覆盖；
+    /// 新库种子与存量老库统一走这里，无需单独 SQL。前端渲染口径见 frontend/src/utils/menuIcons.ts。
+    /// </summary>
+    private static void BackfillMenuIcons(ISqlSugarClient db)
+    {
+        // 组件路径 → 语义图标名（前端 resolveMenuIcon 按语义名解析 XxxOutlined）
+        var iconMap = new Dictionary<string, string>
+        {
+            ["system/user/index"] = "Team",
+            ["system/role/index"] = "UserSwitch",
+            ["system/menu/index"] = "Menu",
+            ["system/api/index"] = "Api",
+            ["system/announcement/index"] = "Notification",
+            ["system/pwdpolicy/index"] = "Lock",
+            ["system/loginsecurity/index"] = "SafetyCertificate",
+            ["system/auditlog/index"] = "FileSearch",
+            ["system/notifychannel/index"] = "Bell",
+            ["system/region/index"] = "Environment",
+            ["system/siteconfig/index"] = "Control",
+            ["system/tenant/index"] = "DeploymentUnit",
+            ["system/workflow/index"] = "NodeIndex",
+            ["system/message/index"] = "Mail",
+            ["job/index"] = "ClockCircle",
+            ["monitor/resource/index"] = "Dashboard",
+            ["monitor/service/index"] = "CloudServer",
+            ["monitor/log/index"] = "FileText",
+            ["monitor/apidocs/index"] = "Book",
+        };
+
+        var menus = db.Queryable<SysMenu>().Where(m => m.MenuType != 2 && (m.Icon == null || m.Icon == "")).ToList();
+        var updates = new List<SysMenu>();
+        foreach (var menu in menus)
+        {
+            if (menu.Component != null && iconMap.TryGetValue(menu.Component, out var icon))
+            {
+                menu.Icon = icon;
+                updates.Add(menu);
+            }
+        }
+        if (updates.Count > 0)
+            db.Updateable(updates).UpdateColumns(m => new { m.Icon }).ExecuteCommand();
     }
 
     /// <summary>基础种子：内置角色、admin 账号、菜单/按钮权限、接口资源（仅首次运行）</summary>
