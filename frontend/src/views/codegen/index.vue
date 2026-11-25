@@ -77,6 +77,31 @@
           <a-button type="primary" style="margin-top: 12px" :loading="enhSaving" @click="onEnhSave">保存增强配置</a-button>
         </template>
       </a-tab-pane>
+
+      <!-- ============ 服务管理（③④：服务清单 + 一键生成新服务） ============ -->
+      <a-tab-pane key="services" title="服务管理">
+        <div class="table-operator">
+          <a-button v-permission="'sys:codegen:manage'" type="primary" @click="openScaffold">
+            <template #icon><PlusOutlined /></template>
+            生成新服务
+          </a-button>
+        </div>
+        <a-table
+          :data-source="services"
+          :columns="serviceColumns"
+          :loading="servicesLoading"
+          row-key="id"
+          size="middle"
+          :pagination="false"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'isBuiltIn'">
+              <a-tag v-if="record.isBuiltIn" color="blue">内置</a-tag>
+              <a-tag v-else color="green">新增</a-tag>
+            </template>
+          </template>
+        </a-table>
+      </a-tab-pane>
     </a-tabs>
 
     <template #table="{ scrollY }">
@@ -184,6 +209,18 @@
           <a-col :span="8">
             <a-form-item label="备注" name="remark">
               <a-input v-model:value="editForm.remark" placeholder="选填" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="8">
+            <a-form-item label="目标服务（控制器落进哪个服务）" name="targetService">
+              <a-select
+                v-model:value="editForm.targetService"
+                placeholder="默认：权限服务"
+                allow-clear
+                :options="serviceOptions"
+              />
             </a-form-item>
           </a-col>
         </a-row>
@@ -453,8 +490,73 @@
         :message="`已生成 ${genResult?.files?.length || 0} 个文件，耗时 ${genResult?.elapsedMs || 0} ms`"
         style="margin-bottom: 12px"
       />
-      <a-collapse>
+      <!-- 编译验证（⑤）：生成文件写入源码根目录并编译，可选编译通过后重启 -->
+      <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px">
+        <a-checkbox v-model:checked="buildRestart">编译通过后重启服务</a-checkbox>
+        <a-button type="primary" :loading="buildVerifying" @click="onBuildVerify">编译验证</a-button>
+      </div>
+      <a-alert
+        v-if="buildResult"
+        :type="buildResult.success ? 'success' : 'error'"
+        show-icon
+        :message="buildResult.success ? `编译通过，耗时 ${buildResult.elapsedMs} ms${buildResult.restartOutput ? '，已执行重启命令' : ''}` : '编译失败，请查看下方输出'"
+        style="margin-bottom: 12px"
+      />
+      <pre v-if="buildResult?.output" class="code-preview"><code>{{ buildResult.output }}</code></pre>
+      <pre v-if="buildResult?.restartOutput" class="code-preview" style="margin-top: 8px"><code>{{ buildResult.restartOutput }}</code></pre>
+      <a-collapse style="margin-top: 12px">
         <a-collapse-panel v-for="f in genResult?.files || []" :key="f.path" :header="f.path">
+          <pre class="code-preview"><code>{{ f.content }}</code></pre>
+        </a-collapse-panel>
+      </a-collapse>
+    </a-modal>
+
+    <!-- ============ 服务脚手架弹窗（③） ============ -->
+    <a-modal
+      v-model:open="scaffoldVisible"
+      title="生成新服务"
+      :confirm-loading="scaffoldSaving"
+      ok-text="生成"
+      @ok="onScaffold"
+    >
+      <a-form layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="短名（Pascal 风格，如 Order）" required>
+              <a-input v-model:value="scaffoldForm.shortName" placeholder="如 Order" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="中文名" required>
+              <a-input v-model:value="scaffoldForm.displayName" placeholder="如 订单服务" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="路由前缀（留空 = 短名小写）">
+              <a-input v-model:value="scaffoldForm.routePrefix" placeholder="留空自动" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="端口（留空自动分配）">
+              <a-input-number v-model:value="scaffoldForm.port" :min="1" :max="65535" style="width: 100%" placeholder="留空自动" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+      </a-form>
+    </a-modal>
+
+    <!-- ============ 新服务生成结果弹窗（③） ============ -->
+    <a-modal v-model:open="scaffoldResultVisible" title="新服务生成结果" :footer="null" width="860px">
+      <a-alert
+        type="success"
+        show-icon
+        :message="`服务 ${scaffoldResult?.serviceName || ''} 已登记：端口 ${scaffoldResult?.port || ''}，路由前缀 ${scaffoldResult?.routePrefix || ''}；网关路由/部署/compose 登记片段见下方文件`"
+        style="margin-bottom: 12px"
+      />
+      <a-collapse>
+        <a-collapse-panel v-for="f in scaffoldResult?.files || []" :key="f.path" :header="f.path">
           <pre class="code-preview"><code>{{ f.content }}</code></pre>
         </a-collapse-panel>
       </a-collapse>
@@ -482,6 +584,9 @@ import {
   generateCodegen,
   getCodegenRecords,
   getCodegenRecord,
+  getCodegenServices,
+  scaffoldCodegenService,
+  buildVerifyCodegen,
   type CodegenDesign,
   type CodegenFieldDesign,
   type CodegenDetailTableConfig,
@@ -489,6 +594,9 @@ import {
   type CodegenSyncResult,
   type CodegenGenerateResult,
   type CodegenRecord,
+  type CodegenService,
+  type CodegenServiceScaffoldResult,
+  type CodegenBuildVerifyResult,
 } from '@/api/codegen';
 import { message } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
@@ -572,6 +680,7 @@ const editForm = reactive<{
   remark?: string;
   fields: CodegenFieldDesign[];
   masterDetails: MdDetailRow[];
+  targetService?: string;
 }>({
   tableName: '',
   displayName: '',
@@ -629,6 +738,7 @@ function openCreate() {
   editForm.fields = [newField()];
   mdEnabled.value = false;
   editForm.masterDetails = [];
+  editForm.targetService = undefined;
   editVisible.value = true;
 }
 
@@ -638,6 +748,7 @@ async function openEdit(record: CodegenDesign) {
   editForm.tableName = detail.tableName;
   editForm.displayName = detail.displayName;
   editForm.remark = detail.remark;
+  editForm.targetService = detail.targetService || undefined;
   fieldKeySeq = 0;
   editForm.fields = parseFieldCount(detail.fieldsJson) > 0 ? JSON.parse(detail.fieldsJson!) : [];
   editForm.fields.forEach((f: any) => (f._key = ++fieldKeySeq));
@@ -702,6 +813,7 @@ async function onSaveDesign() {
       remark: editForm.remark,
       fields: editForm.fields.map(({ _key, ...f }: any) => f as CodegenFieldDesign),
       masterDetail: masterDetail?.length ? { details: masterDetail } : undefined,
+      targetService: editForm.targetService || undefined,
     });
     message.success('保存成功');
     editVisible.value = false;
@@ -866,8 +978,97 @@ const genResult = ref<CodegenGenerateResult | null>(null);
 async function onGenerate(record: CodegenDesign) {
   const res = await generateCodegen(record.id);
   genResult.value = res;
+  buildResult.value = null;
+  buildRestart.value = false;
   genVisible.value = true;
 }
+
+// ============ 编译验证（⑤：生成文件写入源码根目录并编译，可选重启） ============
+const buildRestart = ref(false);
+const buildVerifying = ref(false);
+const buildResult = ref<CodegenBuildVerifyResult | null>(null);
+
+async function onBuildVerify() {
+  if (!genResult.value?.recordId) return;
+  buildVerifying.value = true;
+  buildResult.value = null;
+  try {
+    buildResult.value = await buildVerifyCodegen(genResult.value.recordId, buildRestart.value);
+    if (buildResult.value.success) message.success('编译通过');
+    else message.error('编译失败，请查看输出');
+  } finally {
+    buildVerifying.value = false;
+  }
+}
+
+// ============ 服务管理（③④：服务清单 + 一键生成新服务） ============
+const services = ref<CodegenService[]>([]);
+const servicesLoading = ref(false);
+
+async function loadServices() {
+  servicesLoading.value = true;
+  try {
+    services.value = await getCodegenServices();
+  } finally {
+    servicesLoading.value = false;
+  }
+}
+
+const serviceColumns = [
+  { title: '服务名', dataIndex: 'serviceName', key: 'serviceName' },
+  { title: '中文名', dataIndex: 'displayName', key: 'displayName' },
+  { title: '端口', dataIndex: 'port', key: 'port', width: 90 },
+  { title: '路由前缀', dataIndex: 'routePrefix', key: 'routePrefix', width: 130 },
+  { title: '类型', key: 'isBuiltIn', width: 90 },
+];
+
+/** 表设计弹窗的目标服务下拉数据源 */
+const serviceOptions = computed(() =>
+  services.value.map((s) => ({ label: `${s.displayName}（${s.serviceName}:${s.port}）`, value: s.serviceName })),
+);
+
+const scaffoldVisible = ref(false);
+const scaffoldSaving = ref(false);
+const scaffoldForm = reactive<{ shortName: string; displayName: string; routePrefix?: string; port?: number }>({
+  shortName: '',
+  displayName: '',
+});
+
+function openScaffold() {
+  scaffoldForm.shortName = '';
+  scaffoldForm.displayName = '';
+  scaffoldForm.routePrefix = undefined;
+  scaffoldForm.port = undefined;
+  scaffoldVisible.value = true;
+}
+
+async function onScaffold() {
+  if (!scaffoldForm.shortName.trim()) {
+    message.warning('请填写服务短名');
+    return;
+  }
+  if (!scaffoldForm.displayName.trim()) {
+    message.warning('请填写中文名');
+    return;
+  }
+  scaffoldSaving.value = true;
+  try {
+    scaffoldResult.value = await scaffoldCodegenService({
+      shortName: scaffoldForm.shortName.trim(),
+      displayName: scaffoldForm.displayName.trim(),
+      routePrefix: scaffoldForm.routePrefix?.trim() || undefined,
+      port: scaffoldForm.port || undefined,
+    });
+    scaffoldVisible.value = false;
+    scaffoldResultVisible.value = true;
+    await loadServices();
+  } finally {
+    scaffoldSaving.value = false;
+  }
+}
+
+const scaffoldResultVisible = ref(false);
+const scaffoldResult = ref<CodegenServiceScaffoldResult | null>(null);
 
 // ============ 生成记录 ============
 const records = ref<CodegenRecord[]>([]);
@@ -982,6 +1183,7 @@ async function onEnhSave() {
       fields: enhFields.value.map(({ _key, ...f }: any) => f as CodegenFieldDesign),
       masterDetail: md?.details.length ? { details: md.details } : undefined,
       enhancement: { importEnabled: enhImport.value, exportEnabled: enhExport.value },
+      targetService: detail.targetService || undefined,
     });
     message.success('增强配置已保存：生成页运行时读取配置，补配即生效');
   } finally {
@@ -991,12 +1193,14 @@ async function onEnhSave() {
 
 watch(activeTab, (tab) => {
   if (tab === 'enhance') loadAllDesigns();
+  if (tab === 'services') loadServices();
 });
 
 onMounted(() => {
   loadDesigns();
   loadRecords();
   loadAllDesigns();
+  loadServices();
 });
 </script>
 

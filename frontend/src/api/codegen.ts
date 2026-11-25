@@ -36,6 +36,8 @@ export interface CodegenDesign {
   masterDetailJson?: string;
   /** 增强配置 JSON（CodegenEnhancementConfig） */
   enhancementJson?: string;
+  /** 目标服务工程名（控制器落进哪个服务；空 = 默认权限服务） */
+  targetService?: string;
 }
 
 /** 单个从表配置 */
@@ -76,6 +78,8 @@ export interface CodegenDesignSave {
   masterDetail?: CodegenMasterDetailConfig;
   /** 增强配置（null 表示清空） */
   enhancement?: CodegenEnhancementConfig;
+  /** 目标服务工程名（控制器落进哪个服务；空 = 默认权限服务） */
+  targetService?: string;
 }
 
 /** 同步建库结果 */
@@ -158,4 +162,58 @@ export function getCodegenRecords(params: { pageIndex?: number; pageSize?: numbe
 /** 生成记录详情（含全部生成文件内容） */
 export function getCodegenRecord(id: string): Promise<Record<string, any>> {
   return request({ url: `/identity/codegen/records/${id}`, method: 'get' });
+}
+
+// ============ 服务登记与一键生成新服务（③④） ============
+
+/** 已登记的后端服务 */
+export interface CodegenService {
+  id: string;
+  serviceName: string;
+  shortName: string;
+  routePrefix: string;
+  port: number;
+  displayName: string;
+  isBuiltIn: boolean;
+}
+
+/** 一键生成新服务请求（端口缺省自动分配；路由前缀缺省 = 短名小写） */
+export interface CodegenServiceScaffold {
+  shortName: string;
+  displayName: string;
+  routePrefix?: string;
+  port?: number;
+}
+
+/** 一键生成新服务结果 */
+export interface CodegenServiceScaffoldResult {
+  serviceId: string;
+  serviceName: string;
+  port: number;
+  routePrefix: string;
+  files: CodegenFile[];
+}
+
+/** 编译验证结果（⑤） */
+export interface CodegenBuildVerifyResult {
+  success: boolean;
+  writtenFiles: string[];
+  output: string;
+  restartOutput?: string;
+  elapsedMs: number;
+}
+
+/** 服务清单（生成器目标服务下拉数据源） */
+export function getCodegenServices(): Promise<CodegenService[]> {
+  return request({ url: '/identity/codegen/services', method: 'get' });
+}
+
+/** 一键生成新服务：脚手架全套 + 端口自动分配 + 网关/部署/compose 登记片段，登记后即可选为目标服务 */
+export function scaffoldCodegenService(data: CodegenServiceScaffold): Promise<CodegenServiceScaffoldResult> {
+  return request({ url: '/identity/codegen/services/scaffold', method: 'post', data });
+}
+
+/** 编译验证：生成文件写入源码根目录（站点参数 codegen.repoRoot）并编译；restart=true 时编译通过后执行重启命令 */
+export function buildVerifyCodegen(recordId: string, restart: boolean): Promise<CodegenBuildVerifyResult> {
+  return request({ url: '/identity/codegen/build-verify', method: 'post', data: { recordId, restart } });
 }

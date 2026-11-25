@@ -27,6 +27,8 @@ public class CodegenDesignSaveRequest
     public CodegenMasterDetailConfig? masterDetail { get; set; }
     /// <summary>增强配置（导入导出等补配；null 表示清空）</summary>
     public CodegenEnhancementConfig? enhancement { get; set; }
+    /// <summary>目标服务工程名（控制器落进哪个服务；空 = 默认 TaoAdmin.IdentityService）</summary>
+    public string? targetService { get; set; }
 }
 
 /// <summary>同步结果：执行了什么、跳过了什么、待确认的破坏性语句</summary>
@@ -84,6 +86,42 @@ public class CodegenFile
     public string content { get; set; } = "";
 }
 
+/// <summary>一键生成新服务请求（③）：短名 Pascal 风格；端口缺省自动分配；路由前缀缺省 = 短名小写</summary>
+public class CodegenServiceScaffoldRequest
+{
+    public string shortName { get; set; } = "";
+    public string displayName { get; set; } = "";
+    public string? routePrefix { get; set; }
+    public int? port { get; set; }
+}
+
+/// <summary>一键生成新服务结果：脚手架文件 + 登记信息</summary>
+public class CodegenServiceScaffoldResult
+{
+    public long serviceId { get; set; }
+    public string serviceName { get; set; } = "";
+    public int port { get; set; }
+    public string routePrefix { get; set; } = "";
+    public List<CodegenFile> files { get; set; } = new();
+}
+
+/// <summary>编译验证请求（⑤）：recordId 为生成记录；restart=true 时编译通过后执行重启命令（如已配置）</summary>
+public class CodegenBuildVerifyRequest
+{
+    public long recordId { get; set; }
+    public bool restart { get; set; }
+}
+
+/// <summary>编译验证结果：写入清单 + 编译输出 + 重启输出</summary>
+public class CodegenBuildVerifyResult
+{
+    public bool success { get; set; }
+    public List<string> writtenFiles { get; set; } = new();
+    public string output { get; set; } = "";
+    public string? restartOutput { get; set; }
+    public long elapsedMs { get; set; }
+}
+
 /// <summary>
 /// 代码生成器应用服务（⑲）：
 /// 表设计维护 → 同步建库（加列自动同步；删列/改类型等破坏性变更仅生成语句经确认后执行）
@@ -122,6 +160,9 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         row.FieldsJson = JsonSerializer.Serialize(req.fields);
         row.Remark = req.remark;
         row.EnhancementJson = req.enhancement == null ? null : JsonSerializer.Serialize(req.enhancement);
+        // 更新且未传目标服务时保留原值，避免增强配置等局部保存把已选目标服务冲回默认
+        if (req.targetService != null || row.TargetService == null)
+            row.TargetService = await ResolveTargetServiceAsync(req.targetService);
         row.UpdatedAt = DateTime.Now;
         await SaveMasterDetailAsync(row, req.masterDetail);
         if (row.Id != 0 && await db.Queryable<SysCodeGenTable>().AnyAsync(t => t.Id == row.Id))
@@ -315,6 +356,10 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         if (fields.Count == 0) throw new DomainException("字段清单为空，请先在设计器里画字段");
 
         var files = new List<CodegenFile>();
+        // 目标服务（④生成器可选目标服务）：控制器落进所选服务工程，命名空间随服务走；空 = 默认权限服务
+        var target = await GetServiceRowAsync(design.TargetService);
+        var ctrlPath = $"backend/src/{target.ServiceName}/Controllers";
+        var ctrlNs = $"{target.ServiceName}.Controllers";
         var md = design.IsMasterDetail ? design.ParseMasterDetail() : null;
         if (md != null && md.details.Count > 0)
         {
@@ -336,7 +381,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Domain/Entities/{entityName}.cs", content = GenEntity(design, fields) });
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.cs", content = GenAppService(design, fields, entityName, detailPairs) });
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.Extensions.cs", content = GenExtensionStub(entityName) });
-            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{entityName}Controller.cs", content = GenController(design, fields, entityName, withDetails: true) });
+            files.Add(new CodegenFile { path = $"{ctrlPath}/{entityName}Controller.cs", content = GenController(design, fields, entityName, ctrlNs, withDetails: true) });
             files.Add(new CodegenFile { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel) });
             files.Add(new CodegenFile { path = $"frontend/src/views/{camel}/index.vue", content = GenFrontendPage(design, fields, entityName, camel, detailPairs) });
             files.Add(new CodegenFile { path = $"generated/{design.TableName}/menu-permission-init.sql", content = GenMenuPermissionSql(design, entityName) });
@@ -347,7 +392,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
                 files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Domain/Entities/{dEntity}.cs", content = GenEntity(ddesign, dfields) });
                 files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{dEntity}AppService.cs", content = GenAppService(ddesign, dfields, dEntity) });
                 files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{dEntity}AppService.Extensions.cs", content = GenExtensionStub(dEntity) });
-                files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{dEntity}Controller.cs", content = GenController(ddesign, dfields, dEntity) });
+                files.Add(new CodegenFile { path = $"{ctrlPath}/{dEntity}Controller.cs", content = GenController(ddesign, dfields, dEntity, ctrlNs) });
                 files.Add(new CodegenFile { path = $"frontend/src/api/{dCamel}.ts", content = GenFrontendApi(ddesign, dfields, dEntity, dCamel) });
                 if (cfg.standalone)
                 {
@@ -364,7 +409,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Domain/Entities/{entityName}.cs", content = GenEntity(design, fields) });
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.cs", content = GenAppService(design, fields, entityName) });
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.Extensions.cs", content = GenExtensionStub(entityName) });
-            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{entityName}Controller.cs", content = GenController(design, fields, entityName) });
+            files.Add(new CodegenFile { path = $"{ctrlPath}/{entityName}Controller.cs", content = GenController(design, fields, entityName, ctrlNs) });
             files.Add(new CodegenFile { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel) });
             files.Add(new CodegenFile { path = $"frontend/src/views/{camel}/index.vue", content = GenFrontendPage(design, fields, entityName, camel) });
             files.Add(new CodegenFile
@@ -413,6 +458,184 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             ? new List<CodegenFile>()
             : JsonSerializer.Deserialize<List<CodegenFile>>(record.FilesJson) ?? new List<CodegenFile>();
         return (record, files);
+    }
+
+    // ==================== 服务登记与一键生成新服务（③④） ====================
+
+    /// <summary>服务清单（首次调用幂等补种内置服务：权限服务/定时任务服务；新服务生成后自动登记在此）</summary>
+    public async Task<List<SysCodegenService>> ListServicesAsync()
+    {
+        if (!await db.Queryable<SysCodegenService>().AnyAsync(s => s.IsBuiltIn == true))
+        {
+            var now = DateTime.Now;
+            await db.Insertable(new List<SysCodegenService>
+            {
+                new() { Id = snowflake.NextId(), ServiceName = "TaoAdmin.IdentityService", ShortName = "Identity", RoutePrefix = "identity", Port = 5001, DisplayName = "权限服务", IsBuiltIn = true, CreatedAt = now, UpdatedAt = now },
+                new() { Id = snowflake.NextId(), ServiceName = "TaoAdmin.TaskService", ShortName = "Task", RoutePrefix = "job", Port = 5002, DisplayName = "定时任务服务", IsBuiltIn = true, CreatedAt = now, UpdatedAt = now },
+            }).ExecuteCommandAsync();
+        }
+        return await db.Queryable<SysCodegenService>()
+            .Where(s => s.IsDeleted == false)
+            .OrderBy(s => s.Port)
+            .ToListAsync();
+    }
+
+    /// <summary>解析目标服务名：空 = 默认权限服务；给了名字必须已登记（④）</summary>
+    private async Task<string> ResolveTargetServiceAsync(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return "TaoAdmin.IdentityService";
+        var name = target.Trim();
+        var hit = await db.Queryable<SysCodegenService>().FirstAsync(s => s.ServiceName == name && s.IsDeleted == false);
+        if (hit == null) throw new DomainException($"目标服务 {name} 未登记，请先在「服务管理」页签生成或登记该服务");
+        return hit.ServiceName;
+    }
+
+    /// <summary>取目标服务登记行：空/未登记回落默认权限服务（生成链路不因登记缺失而中断）</summary>
+    private async Task<SysCodegenService> GetServiceRowAsync(string? serviceName)
+    {
+        var name = string.IsNullOrWhiteSpace(serviceName) ? "TaoAdmin.IdentityService" : serviceName.Trim();
+        var hit = await db.Queryable<SysCodegenService>().FirstAsync(s => s.ServiceName == name && s.IsDeleted == false);
+        if (hit != null) return hit;
+        return new SysCodegenService { ServiceName = "TaoAdmin.IdentityService", ShortName = "Identity", RoutePrefix = "identity", Port = 5001, DisplayName = "权限服务", IsBuiltIn = true };
+    }
+
+    /// <summary>一键生成新服务（③）：按现有服务模板出脚手架全套（工程/启动程序/配置/Dockerfile），
+    /// 端口自动分配，网关路由/部署脚本/compose 登记片段随件产出；登记进服务清单供生成器选为目标服务。新服务默认共用数据库各管各表。</summary>
+    public async Task<CodegenServiceScaffoldResult> ScaffoldServiceAsync(CodegenServiceScaffoldRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.shortName) || !Regex.IsMatch(req.shortName.Trim(), @"^[A-Z][A-Za-z0-9]{1,29}$"))
+            throw new DomainException("服务短名须为 Pascal 风格（2-30 位，字母数字，如 Order）");
+        if (string.IsNullOrWhiteSpace(req.displayName)) throw new DomainException("中文名不能为空");
+        var shortName = req.shortName.Trim();
+        var serviceName = $"TaoAdmin.{shortName}Service";
+        var routePrefix = string.IsNullOrWhiteSpace(req.routePrefix) ? shortName.ToLowerInvariant() : req.routePrefix.Trim();
+        if (!Regex.IsMatch(routePrefix, @"^[a-z][a-z0-9-]{1,48}$"))
+            throw new DomainException("路由前缀须为小写字母开头的短横线风格（2-49 位）");
+
+        await ListServicesAsync(); // 幂等补种内置服务，保证端口分配与重名校验有基准
+        if (await db.Queryable<SysCodegenService>().AnyAsync(s => s.ServiceName == serviceName && s.IsDeleted == false))
+            throw new DomainException($"服务 {serviceName} 已登记，请直接选用，不要重复生成");
+        if (await db.Queryable<SysCodegenService>().AnyAsync(s => s.RoutePrefix == routePrefix && s.IsDeleted == false))
+            throw new DomainException($"路由前缀 {routePrefix} 已被其他服务占用");
+        var port = req.port ?? (await db.Queryable<SysCodegenService>().Where(s => s.IsDeleted == false).MaxAsync(s => (int?)s.Port) ?? 5002) + 1;
+        if (await db.Queryable<SysCodegenService>().AnyAsync(s => s.Port == port && s.IsDeleted == false))
+            throw new DomainException($"端口 {port} 已被其他服务占用，请换一个");
+
+        var files = new List<CodegenFile>
+        {
+            new() { path = $"backend/src/{serviceName}/{serviceName}.csproj", content = GenServiceCsproj(serviceName, shortName, req.displayName) },
+            new() { path = $"backend/src/{serviceName}/Program.cs", content = GenServiceProgram(serviceName, shortName, req.displayName) },
+            new() { path = $"backend/src/{serviceName}/appsettings.json", content = GenServiceAppsettings(serviceName, shortName, port) },
+            new() { path = $"backend/src/{serviceName}/Dockerfile", content = GenServiceDockerfile(serviceName) },
+            new() { path = $"generated/services/{routePrefix}/gateway-route.snippet.json", content = GenGatewayRouteSnippet(serviceName, routePrefix, port) },
+            new() { path = $"generated/services/{routePrefix}/docker-compose.snippet.yml", content = GenComposeSnippet(shortName, port) },
+            new() { path = $"generated/services/{routePrefix}/REGISTER.md", content = GenRegisterGuide(serviceName, shortName, routePrefix, port, req.displayName) },
+        };
+
+        var row = new SysCodegenService
+        {
+            Id = snowflake.NextId(), ServiceName = serviceName, ShortName = shortName, RoutePrefix = routePrefix,
+            Port = port, DisplayName = req.displayName.Trim(), IsBuiltIn = false, CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now
+        };
+        await db.Insertable(row).ExecuteCommandAsync();
+
+        return new CodegenServiceScaffoldResult { serviceId = row.Id, serviceName = serviceName, port = port, routePrefix = routePrefix, files = files };
+    }
+
+    // ==================== 编译验证与重启生效（⑤） ====================
+
+    /// <summary>编译验证（⑤）：把生成记录的文件写入源码根目录（站点参数 codegen.repoRoot），
+    /// 跑 dotnet build 全解决方案核对零错零警；restart=true 且配置了 codegen.restartCommand 时编译通过后执行重启命令。</summary>
+    public async Task<CodegenBuildVerifyResult> BuildVerifyAsync(CodegenBuildVerifyRequest req)
+    {
+        var repoRoot = await GetConfigValueAsync("codegen.repoRoot");
+        if (string.IsNullOrWhiteSpace(repoRoot))
+            throw new DomainException("请先在「站点参数」里配置 codegen.repoRoot（本机源码根目录的绝对路径），编译验证才能落文件");
+        if (!Directory.Exists(repoRoot))
+            throw new DomainException($"源码根目录不存在：{repoRoot}，请检查站点参数 codegen.repoRoot");
+
+        var (record, files) = await GetRecordAsync(req.recordId);
+        if (files.Count == 0) throw new DomainException("该生成记录没有文件，请先重新生成");
+
+        var sw = Stopwatch.StartNew();
+        var written = new List<string>();
+        // 源码统一 UTF-8 带 BOM（Windows 侧 VS/编译器口径一致）
+        var utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        foreach (var f in files)
+        {
+            if (f.path.StartsWith("generated/", StringComparison.Ordinal)) continue; // SQL/片段不进源码树
+            var full = Path.Combine(repoRoot, f.path.Replace('/', Path.DirectorySeparatorChar));
+            var dir = Path.GetDirectoryName(full);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            await File.WriteAllTextAsync(full, f.content, utf8Bom);
+            written.Add(f.path);
+        }
+
+        var sln = Path.Combine(repoRoot, "backend", "TaoAdmin.sln");
+        if (!File.Exists(sln)) throw new DomainException($"未找到解决方案文件：{sln}，请确认 codegen.repoRoot 指向源码根目录");
+        var (code, output) = RunProcess("dotnet", $"build \"{sln}\" -c Release --nologo -v q", repoRoot, 600);
+        var success = code == 0;
+
+        string? restartOutput = null;
+        if (success && req.restart)
+        {
+            var restartCmd = await GetConfigValueAsync("codegen.restartCommand");
+            if (string.IsNullOrWhiteSpace(restartCmd))
+                restartOutput = "未配置 codegen.restartCommand（重启命令），跳过重启；编译已通过，请手动重启服务后生效";
+            else
+            {
+                var (rc, rout) = RunShell(restartCmd, repoRoot, 300);
+                restartOutput = $"重启命令退出码 {rc}：\n{rout}";
+            }
+        }
+
+        sw.Stop();
+        return new CodegenBuildVerifyResult { success = success, writtenFiles = written, output = output, restartOutput = restartOutput, elapsedMs = sw.ElapsedMilliseconds };
+    }
+
+    /// <summary>站点参数读取口（键不存在返回 null）</summary>
+    private async Task<string?> GetConfigValueAsync(string key)
+    {
+        var row = await db.Queryable<SysSiteConfig>().FirstAsync(c => c.ConfigKey == key && c.IsDeleted == false);
+        return row?.ConfigValue;
+    }
+
+    /// <summary>运行进程并收集输出（超时强杀）</summary>
+    private static (int Code, string Output) RunProcess(string fileName, string args, string workingDir, int timeoutSeconds)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = fileName, Arguments = args, WorkingDirectory = workingDir,
+            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
+        };
+        return RunProcessCore(psi, timeoutSeconds);
+    }
+
+    /// <summary>经系统 shell 运行重启命令（Linux bash / Windows cmd）</summary>
+    private static (int Code, string Output) RunShell(string command, string workingDir, int timeoutSeconds)
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        var psi = isWindows
+            ? new ProcessStartInfo { FileName = "cmd.exe", Arguments = $"/c {command}", WorkingDirectory = workingDir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true }
+            : new ProcessStartInfo { FileName = "/bin/bash", Arguments = $"-c \"{command.Replace("\"", "\\\"")}\"", WorkingDirectory = workingDir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        return RunProcessCore(psi, timeoutSeconds);
+    }
+
+    private static (int Code, string Output) RunProcessCore(ProcessStartInfo psi, int timeoutSeconds)
+    {
+        using var p = new Process { StartInfo = psi };
+        var sb = new StringBuilder();
+        p.OutputDataReceived += (_, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
+        p.ErrorDataReceived += (_, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
+        p.Start();
+        p.BeginOutputReadLine();
+        p.BeginErrorReadLine();
+        if (!p.WaitForExit(timeoutSeconds * 1000))
+        {
+            try { p.Kill(true); } catch { /* 进程已退出则忽略 */ }
+            return (-1, sb + "\n执行超时（超过 " + timeoutSeconds + " 秒），进程已终止");
+        }
+        return (p.ExitCode, sb.ToString());
     }
 
     // ==================== 校验 ====================
@@ -1028,7 +1251,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         return sb.ToString();
     }
 
-    private static string GenController(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, bool withDetails = false)
+    private static string GenController(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, string serviceNs, bool withDetails = false)
     {
         var perm = $"gen:{design.TableName}:manage";
         var sb = new StringBuilder();
@@ -1041,7 +1264,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("using Microsoft.AspNetCore.Authorization;");
         sb.AppendLine("using Microsoft.AspNetCore.Mvc;");
         sb.AppendLine();
-        sb.AppendLine("namespace TaoAdmin.IdentityService.Controllers;");
+        sb.AppendLine($"namespace {serviceNs};");
         sb.AppendLine();
         sb.AppendLine($"/// <summary>{design.DisplayName}管理（代码生成器生成）</summary>");
         sb.AppendLine($"[Route(\"{design.TableName}\")]");
@@ -1657,6 +1880,259 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine();
         sb.AppendLine("loadConfig().then(loadData)");
         sb.AppendLine("</script>");
+        return sb.ToString();
+    }
+
+    // ==================== 新服务脚手架模板（③） ====================
+
+    private static string GenServiceCsproj(string serviceName, string shortName, string displayName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(MarkerHeader.Replace("生成区：重复生成会覆盖本文件；手改逻辑请写 *AppService.Extensions.cs 扩展文件", "生成区：重复生成会覆盖本文件"));
+        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk.Web\">");
+        sb.AppendLine();
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <TargetFramework>net10.0</TargetFramework>");
+        sb.AppendLine($"    <Product>{serviceName}</Product>");
+        sb.AppendLine("    <Company>Tao</Company>");
+        sb.AppendLine("    <Authors>Tao</Authors>");
+        sb.AppendLine("    <Copyright>Copyright (c) 2026 Tao</Copyright>");
+        sb.AppendLine("    <Version>1.0.0</Version>");
+        sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine($"    <Description>TaoAdmin {displayName}（代码生成器脚手架）</Description>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine("    <PackageReference Include=\"Serilog.AspNetCore\" Version=\"8.0.1\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine("    <ProjectReference Include=\"..\\TaoAdmin.Application\\TaoAdmin.Application.csproj\" />");
+        sb.AppendLine("    <ProjectReference Include=\"..\\TaoAdmin.Infrastructure\\TaoAdmin.Infrastructure.csproj\" />");
+        sb.AppendLine("    <ProjectReference Include=\"..\\TaoAdmin.Common\\TaoAdmin.Common.csproj\" />");
+        sb.AppendLine("    <ProjectReference Include=\"..\\TaoAdmin.Utilities\\TaoAdmin.Utilities.csproj\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine();
+        sb.AppendLine("</Project>");
+        return sb.ToString();
+    }
+
+    private static string GenServiceProgram(string serviceName, string shortName, string displayName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(MarkerHeader.Replace("生成区：重复生成会覆盖本文件；手改逻辑请写 *AppService.Extensions.cs 扩展文件", "生成区：重复生成会覆盖本文件"));
+        sb.AppendLine("using TaoAdmin.Common.Auth;");
+        sb.AppendLine("using TaoAdmin.Common.Http;");
+        sb.AppendLine("using TaoAdmin.Common.Snowflake;");
+        sb.AppendLine("using TaoAdmin.Domain;");
+        sb.AppendLine("using TaoAdmin.Infrastructure.Persistence;");
+        sb.AppendLine("using Microsoft.AspNetCore.Authentication.JwtBearer;");
+        sb.AppendLine("using Microsoft.IdentityModel.Tokens;");
+        sb.AppendLine("using Serilog;");
+        sb.AppendLine("using SqlSugar;");
+        sb.AppendLine("using System.Text;");
+        sb.AppendLine("using System.Text.Json.Serialization;");
+        sb.AppendLine();
+        sb.AppendLine("var builder = WebApplication.CreateBuilder(args);");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== Serilog：控制台 + JSON 文件 ====================");
+        sb.AppendLine("var logCfg = new LoggerConfiguration()");
+        sb.AppendLine("    .MinimumLevel.Information()");
+        sb.AppendLine("    .Enrich.FromLogContext()");
+        sb.AppendLine($"    .Enrich.WithProperty(\"Service\", \"taoadmin-{shortName.ToLowerInvariant()}\")");
+        sb.AppendLine("    .WriteTo.Console()");
+        sb.AppendLine("    .WriteTo.File(new Serilog.Formatting.Compact.CompactJsonFormatter(),");
+        sb.AppendLine($"        Path.Combine(builder.Configuration[\"Monitor:LogDir\"] ?? \"logs\", \"{shortName.ToLowerInvariant()}.jsonl\"),");
+        sb.AppendLine("        rollingInterval: RollingInterval.Infinite, shared: true);");
+        sb.AppendLine("Log.Logger = logCfg.CreateLogger();");
+        sb.AppendLine("builder.Host.UseSerilog();");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== SqlSugar（与权限服务共用数据库，各管各表） ====================");
+        sb.AppendLine("builder.Services.AddSqlSugar(builder.Configuration);");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== 雪花ID ====================");
+        sb.AppendLine("builder.Services.AddSingleton(_ => new SnowflakeIdGenerator(");
+        sb.AppendLine("    builder.Configuration.GetValue<long>(\"Snowflake:DatacenterId\", 1),");
+        sb.AppendLine("    builder.Configuration.GetValue<long>(\"Snowflake:WorkerId\", 1)));");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== JWT（与网关/权限服务同一套密钥） ====================");
+        sb.AppendLine("builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(\"Jwt\"));");
+        sb.AppendLine("builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<JwtOptions>>().Value);");
+        sb.AppendLine("builder.Services.AddSingleton<JwtTokenService>();");
+        sb.AppendLine("var jwtOptions = builder.Configuration.GetSection(\"Jwt\").Get<JwtOptions>() ?? new JwtOptions();");
+        sb.AppendLine("builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)");
+        sb.AppendLine("    .AddJwtBearer(options =>");
+        sb.AppendLine("    {");
+        sb.AppendLine("        options.TokenValidationParameters = new TokenValidationParameters");
+        sb.AppendLine("        {");
+        sb.AppendLine("            ValidateIssuer = true,");
+        sb.AppendLine("            ValidIssuer = jwtOptions.Issuer,");
+        sb.AppendLine("            ValidateAudience = true,");
+        sb.AppendLine("            ValidAudience = jwtOptions.Audience,");
+        sb.AppendLine("            ValidateIssuerSigningKey = true,");
+        sb.AppendLine("            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SecretKey)),");
+        sb.AppendLine("            ValidateLifetime = true,");
+        sb.AppendLine("            ClockSkew = TimeSpan.Zero");
+        sb.AppendLine("        };");
+        sb.AppendLine("    });");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== 权限码策略授权 ====================");
+        sb.AppendLine("builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();");
+        sb.AppendLine("builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionAuthorizationHandler>();");
+        sb.AppendLine("builder.Services.AddAuthorization();");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== 控制器（长整型雪花ID序列化为字符串） ====================");
+        sb.AppendLine("builder.Services.AddControllers().AddJsonOptions(o =>");
+        sb.AppendLine("{");
+        sb.AppendLine("    o.JsonSerializerOptions.NumberHandling =");
+        sb.AppendLine("        JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString;");
+        sb.AppendLine("});");
+        sb.AppendLine();
+        sb.AppendLine("var app = builder.Build();");
+        sb.AppendLine();
+        sb.AppendLine("app.UseSerilogRequestLogging();");
+        sb.AppendLine($"app.MapGet(\"/health\", () => Results.Ok(new {{ status = \"UP\", service = \"taoadmin-{shortName.ToLowerInvariant()}\" }}));");
+        sb.AppendLine("app.UseAuthentication();");
+        sb.AppendLine("app.UseAuthorization();");
+        sb.AppendLine("app.MapControllers();");
+        sb.AppendLine();
+        sb.AppendLine("// 领域异常 -> 统一返回");
+        sb.AppendLine("app.UseExceptionHandler(\"/error\");");
+        sb.AppendLine("app.Map(\"/error\", (HttpContext ctx) =>");
+        sb.AppendLine("{");
+        sb.AppendLine("    var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;");
+        sb.AppendLine("    var code = ex is DomainException de ? de.Code : 500;");
+        sb.AppendLine("    ctx.Response.StatusCode = 200;");
+        sb.AppendLine("    ctx.Response.WriteAsJsonAsync(new ApiResult<object>");
+        sb.AppendLine("    {");
+        sb.AppendLine("        Code = code,");
+        sb.AppendLine("        Success = false,");
+        sb.AppendLine("        Message = ex?.Message ?? \"服务器内部错误\",");
+        sb.AppendLine("        TraceId = ctx.TraceIdentifier");
+        sb.AppendLine("    });");
+        sb.AppendLine("});");
+        sb.AppendLine();
+        sb.AppendLine("// ==================== 启动：建表 + 种子 ====================");
+        sb.AppendLine("using (var scope = app.Services.CreateScope())");
+        sb.AppendLine("{");
+        sb.AppendLine("    var db = scope.ServiceProvider.GetRequiredService<ISqlSugarClient>();");
+        sb.AppendLine("    var snowflake = scope.ServiceProvider.GetRequiredService<SnowflakeIdGenerator>();");
+        sb.AppendLine("    DbInitializer.Initialize(db, snowflake, typeof(Program).Assembly);");
+        sb.AppendLine($"    Log.Logger.Information(\"{serviceName} 就绪\");");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("app.Run();");
+        return sb.ToString();
+    }
+
+    private static string GenServiceAppsettings(string serviceName, string shortName, int port)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("{");
+        sb.AppendLine($"  // {serviceName}（{port} 端口）：数据库/Redis/JWT 与权限服务保持一致（共用数据库各管各表）");
+        sb.AppendLine($"  \"Urls\": \"http://0.0.0.0:{port}\",");
+        sb.AppendLine("  \"ConnectionStrings\": {");
+        sb.AppendLine("    // 与权限服务一致；线上按部署环境改");
+        sb.AppendLine("    \"Default\": \"server=localhost;port=3306;database=taoadmin;user=root;password=你的密码;SslMode=None;CharSet=utf8mb4\",");
+        sb.AppendLine("    \"Redis\": \"localhost:6379\"");
+        sb.AppendLine("  },");
+        sb.AppendLine("  \"Jwt\": {");
+        sb.AppendLine("    // 三要素必须与权限服务/网关完全一致，否则令牌校验不过");
+        sb.AppendLine("    \"SecretKey\": \"与权限服务一致的密钥（至少32位）\",");
+        sb.AppendLine("    \"Issuer\": \"TaoAdmin\",");
+        sb.AppendLine("    \"Audience\": \"TaoAdmin\",");
+        sb.AppendLine("    \"ExpireMinutes\": 720");
+        sb.AppendLine("  },");
+        sb.AppendLine("  \"Snowflake\": { \"DatacenterId\": 1, \"WorkerId\": 1 },");
+        sb.AppendLine("  \"Monitor\": { \"LogDir\": \"logs\" }");
+        sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    private static string GenServiceDockerfile(string serviceName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"# {serviceName}（代码生成器脚手架）");
+        sb.AppendLine("FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base");
+        sb.AppendLine("WORKDIR /app");
+        sb.AppendLine("EXPOSE 80");
+        sb.AppendLine();
+        sb.AppendLine("FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build");
+        sb.AppendLine("WORKDIR /src");
+        sb.AppendLine($"COPY [\"backend/src/{serviceName}/{serviceName}.csproj\", \"{serviceName}/\"]");
+        sb.AppendLine("COPY [\"backend/src/TaoAdmin.Application/TaoAdmin.Application.csproj\", \"TaoAdmin.Application/\"]");
+        sb.AppendLine("COPY [\"backend/src/TaoAdmin.Infrastructure/TaoAdmin.Infrastructure.csproj\", \"TaoAdmin.Infrastructure/\"]");
+        sb.AppendLine("COPY [\"backend/src/TaoAdmin.Common/TaoAdmin.Common.csproj\", \"TaoAdmin.Common/\"]");
+        sb.AppendLine("COPY [\"backend/src/TaoAdmin.Utilities/TaoAdmin.Utilities.csproj\", \"TaoAdmin.Utilities/\"]");
+        sb.AppendLine("COPY [\"backend/src/TaoAdmin.Domain/TaoAdmin.Domain.csproj\", \"TaoAdmin.Domain/\"]");
+        sb.AppendLine($"RUN dotnet restore \"{serviceName}/{serviceName}.csproj\"");
+        sb.AppendLine("COPY backend/src/. .");
+        sb.AppendLine($"RUN dotnet publish \"{serviceName}/{serviceName}.csproj\" -c Release -o /app/publish");
+        sb.AppendLine();
+        sb.AppendLine("FROM base AS final");
+        sb.AppendLine("WORKDIR /app");
+        sb.AppendLine("COPY --from=build /app/publish .");
+        sb.AppendLine($"ENTRYPOINT [\"dotnet\", \"{serviceName}.dll\"]");
+        return sb.ToString();
+    }
+
+    private static string GenGatewayRouteSnippet(string serviceName, string routePrefix, int port)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"// {serviceName} 网关登记片段：粘贴进 backend/src/TaoAdmin.GatewayService/appsettings.json 的 Routes 与 Clusters");
+        sb.AppendLine($"// Routes 节内追加（/api/{routePrefix}/** → {serviceName}，削掉 /api/{routePrefix} 前缀）");
+        sb.AppendLine($"  \"{routePrefix}\": {{");
+        sb.AppendLine($"    \"ClusterId\": \"{routePrefix}\",");
+        sb.AppendLine($"    \"Match\": {{ \"Path\": \"/api/{routePrefix}/{{**catch-all}}\" }},");
+        sb.AppendLine($"    \"Transforms\": [ {{ \"PathRemovePrefix\": \"/api/{routePrefix}\" }} ]");
+        sb.AppendLine("  },");
+        sb.AppendLine();
+        sb.AppendLine($"// Clusters 节内追加（本地口径；线上把 localhost 换成容器名）");
+        sb.AppendLine($"  \"{routePrefix}\": {{");
+        sb.AppendLine("    \"Destinations\": {");
+        sb.AppendLine($"      \"d1\": {{ \"Address\": \"http://localhost:{port}/\" }}");
+        sb.AppendLine("      // 【线上】\"d1\": { \"Address\": \"http://" + routePrefix + ":" + port + "/\" }");
+        sb.AppendLine("    }");
+        sb.AppendLine("  }");
+        return sb.ToString();
+    }
+
+    private static string GenComposeSnippet(string shortName, int port)
+    {
+        var lower = shortName.ToLowerInvariant();
+        var sb = new StringBuilder();
+        sb.AppendLine($"# {lower} 服务 docker-compose 登记片段：粘贴进 deploy/docker-compose.yml 的 services 节");
+        sb.AppendLine($"  {lower}:");
+        sb.AppendLine($"    image: taoadmin-{lower}:latest");
+        sb.AppendLine("    build:");
+        sb.AppendLine("      context: ..");
+        sb.AppendLine($"      dockerfile: backend/src/TaoAdmin.{shortName}Service/Dockerfile");
+        sb.AppendLine($"    container_name: taoadmin-{lower}");
+        sb.AppendLine($"    ports:");
+        sb.AppendLine($"      - \"{port}:{port}\"");
+        sb.AppendLine("    environment:");
+        sb.AppendLine("      - ASPNETCORE_URLS=http://0.0.0.0:" + port);
+        sb.AppendLine("    depends_on: []");
+        sb.AppendLine("    restart: unless-stopped");
+        return sb.ToString();
+    }
+
+    private static string GenRegisterGuide(string serviceName, string shortName, string routePrefix, int port, string displayName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"# {serviceName}（{displayName}）登记指引");
+        sb.AppendLine();
+        sb.AppendLine($"本服务由代码生成器一键生成（端口 {port}，路由前缀 {routePrefix}），已自动登记进「服务管理」，可直接在表设计里选为目标服务。");
+        sb.AppendLine("按以下步骤完成落库与登记（片段文件在同目录）：");
+        sb.AppendLine();
+        sb.AppendLine("1. 落脚手架：把本目录上级生成的 backend/src/" + serviceName + "/ 四个文件放进源码树对应位置；");
+        sb.AppendLine("2. 挂进解决方案：在 backend/ 目录执行 `dotnet sln TaoAdmin.sln add src/" + serviceName + "/" + serviceName + ".csproj`；");
+        sb.AppendLine("3. 网关登记：把 gateway-route.snippet.json 的两段分别粘贴进网关 appsettings.json 的 Routes 与 Clusters；");
+        sb.AppendLine("4. 部署登记：把 docker-compose.snippet.yml 粘贴进 deploy/docker-compose.yml 的 services 节（本机直跑可跳过）；");
+        sb.AppendLine("5. 重启网关与新服务后生效：`/api/" + routePrefix + "/**` 即路由到本服务。");
+        sb.AppendLine();
+        sb.AppendLine("> 数据库与权限服务共用一套（各管各表）；JWT 三要素必须与权限服务一致，否则令牌校验不过。");
         return sb.ToString();
     }
 

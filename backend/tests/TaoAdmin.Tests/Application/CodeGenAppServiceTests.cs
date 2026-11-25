@@ -21,7 +21,7 @@ public class CodeGenAppServiceTests
             DbType = SqlSugar.DbType.Sqlite,
             IsAutoCloseConnection = false
         });
-        db.CodeFirst.InitTables<SysCodeGenTable, SysCodeGenRecord>();
+        db.CodeFirst.InitTables<SysCodeGenTable, SysCodeGenRecord, SysCodegenService, SysSiteConfig>();
         var svc = new CodeGenAppService(db, new SnowflakeIdGenerator(1, 1));
         return (svc, db);
     }
@@ -875,5 +875,106 @@ public class CodeGenAppServiceTests
         Assert.Equal("biz_contract_item", detail.tableName);
         Assert.Equal("contract_id", detail.foreignKey);
         Assert.Contains(detail.fields, f => f.name == "item_name");
+    }
+
+    // ==================== ③一键生成新服务 / ④可选目标服务 / ⑤编译验证 ====================
+
+    [Fact]
+    public async Task ListServices_ShouldSeedBuiltinsOnce()
+    {
+        var (svc, _) = Create();
+        var list1 = await svc.ListServicesAsync();
+        Assert.Equal(2, list1.Count);
+        Assert.All(list1, s => Assert.True(s.IsBuiltIn));
+        var list2 = await svc.ListServicesAsync();
+        Assert.Equal(2, list2.Count); // 幂等：不重复补种
+    }
+
+    [Fact]
+    public async Task ScaffoldService_ShouldRegisterWithAutoPortAndEmitFullStack()
+    {
+        var (svc, db) = Create();
+        var res = await svc.ScaffoldServiceAsync(new CodegenServiceScaffoldRequest { shortName = "Order", displayName = "订单服务" });
+
+        Assert.Equal("TaoAdmin.OrderService", res.serviceName);
+        Assert.Equal(5003, res.port); // 内置 5001/5002 之后自动分配
+        Assert.Equal("order", res.routePrefix);
+        Assert.Contains(res.files, f => f.path == "backend/src/TaoAdmin.OrderService/TaoAdmin.OrderService.csproj");
+        Assert.Contains(res.files, f => f.path == "backend/src/TaoAdmin.OrderService/Program.cs");
+        Assert.Contains(res.files, f => f.path == "backend/src/TaoAdmin.OrderService/appsettings.json");
+        Assert.Contains(res.files, f => f.path == "backend/src/TaoAdmin.OrderService/Dockerfile");
+        Assert.Contains(res.files, f => f.path == "generated/services/order/gateway-route.snippet.json");
+        Assert.Contains(res.files, f => f.path == "generated/services/order/docker-compose.snippet.yml");
+        Assert.Contains(res.files, f => f.path.EndsWith("REGISTER.md"));
+        // 已登记，可被选为目标服务
+        var services = await svc.ListServicesAsync();
+        Assert.Contains(services, s => s.ServiceName == "TaoAdmin.OrderService" && !s.IsBuiltIn);
+        // appsettings 端口与路由片段对得上
+        Assert.Contains(res.files, f => f.path.EndsWith("appsettings.json") && f.content.Contains("5003"));
+        Assert.Contains(res.files, f => f.path.EndsWith("gateway-route.snippet.json") && f.content.Contains("/api/order/"));
+    }
+
+    [Fact]
+    public async Task ScaffoldService_SecondAutoPortIncrements_AndDuplicateRejected()
+    {
+        var (svc, _) = Create();
+        await svc.ScaffoldServiceAsync(new CodegenServiceScaffoldRequest { shortName = "Order", displayName = "订单服务" });
+        var res2 = await svc.ScaffoldServiceAsync(new CodegenServiceScaffoldRequest { shortName = "Report", displayName = "报表服务" });
+        Assert.Equal(5004, res2.port);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            svc.ScaffoldServiceAsync(new CodegenServiceScaffoldRequest { shortName = "Order", displayName = "重复" }));
+        await Assert.ThrowsAsync<DomainException>(() =>
+            svc.ScaffoldServiceAsync(new CodegenServiceScaffoldRequest { shortName = "BadName", displayName = "坏前缀", routePrefix = "Order" }));
+    }
+
+    [Fact]
+    public async Task Generate_WithTargetService_ControllerFallsIntoTarget()
+    {
+        var (svc, _) = Create();
+        await svc.ListServicesAsync(); // 补种内置服务
+        var id = await svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_report", displayName = "报表管理",
+            fields = new List<CodegenFieldDesign> { new() { name = "title", label = "名称", dataType = "string", length = 50, nullable = false, control = "text" } },
+            targetService = "TaoAdmin.TaskService"
+        });
+        var gen = await svc.GenerateAsync(id);
+
+        var ctrl = gen.files.First(f => f.path.EndsWith("BizReportController.cs"));
+        Assert.Contains("backend/src/TaoAdmin.TaskService/Controllers", ctrl.path);
+        Assert.Contains("namespace TaoAdmin.TaskService.Controllers;", ctrl.content);
+    }
+
+    [Fact]
+    public async Task Generate_DefaultTarget_ControllerInIdentityService()
+    {
+        var (svc, _) = Create();
+        var id = await svc.SaveDesignAsync(ValidDesign());
+        var gen = await svc.GenerateAsync(id);
+
+        var ctrl = gen.files.First(f => f.path.EndsWith("BizContractController.cs"));
+        Assert.Contains("backend/src/TaoAdmin.IdentityService/Controllers", ctrl.path);
+        Assert.Contains("namespace TaoAdmin.IdentityService.Controllers;", ctrl.content);
+    }
+
+    [Fact]
+    public async Task SaveDesign_UnknownTargetService_ShouldThrow()
+    {
+        var (svc, _) = Create();
+        var req = ValidDesign();
+        req.targetService = "TaoAdmin.GhostService";
+        await Assert.ThrowsAsync<DomainException>(() => svc.SaveDesignAsync(req));
+    }
+
+    [Fact]
+    public async Task BuildVerify_WithoutRepoRoot_ShouldThrowClearMessage()
+    {
+        var (svc, _) = Create();
+        var id = await svc.SaveDesignAsync(ValidDesign());
+        var gen = await svc.GenerateAsync(id);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.BuildVerifyAsync(new CodegenBuildVerifyRequest { recordId = gen.recordId }));
+        Assert.Contains("codegen.repoRoot", ex.Message);
     }
 }

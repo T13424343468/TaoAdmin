@@ -28,7 +28,7 @@ public class CodeGenControllerTests
             DbType = SqlSugar.DbType.Sqlite,
             IsAutoCloseConnection = false
         });
-        _db.CodeFirst.InitTables<SysCodeGenTable, SysCodeGenRecord>();
+        _db.CodeFirst.InitTables<SysCodeGenTable, SysCodeGenRecord, SysCodegenService>();
         _svc = new CodeGenAppService(_db, new SnowflakeIdGenerator(1, 1));
         _controller = new CodeGenController(_svc)
         {

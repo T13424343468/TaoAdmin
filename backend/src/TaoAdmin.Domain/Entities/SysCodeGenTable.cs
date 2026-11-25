@@ -44,6 +44,10 @@ public class SysCodeGenTable : BaseEntity
     [SugarColumn(ColumnDataType = "TEXT", IsNullable = true, ColumnDescription = "增强配置JSON")]
     public string? EnhancementJson { get; set; }
 
+    /// <summary>目标服务（控制器落进哪个服务工程；空 = 默认 TaoAdmin.IdentityService）</summary>
+    [SugarColumn(Length = 100, IsNullable = true, ColumnDescription = "目标服务工程名")]
+    public string? TargetService { get; set; }
+
     /// <summary>解析增强配置（损坏或为空时返回 null）</summary>
     public CodegenEnhancementConfig? ParseEnhancement()
     {

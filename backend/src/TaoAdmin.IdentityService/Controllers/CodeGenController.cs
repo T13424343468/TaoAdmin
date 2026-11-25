@@ -99,4 +99,22 @@ public class CodeGenController : BaseApiController
         object data = new { record.Id, record.TableName, record.Mode, record.FileCount, record.ElapsedMs, record.CreatedAt, files };
         return ApiOk(data);
     }
+
+    /// <summary>服务清单（④生成器可选目标服务：内置两个 + 一键生成新服务自动登记）</summary>
+    [HttpGet("services")]
+    [Permission("sys:codegen:manage")]
+    public async Task<ApiResult<List<TaoAdmin.Domain.Entities.SysCodegenService>>> Services()
+        => ApiOk(await _svc.ListServicesAsync());
+
+    /// <summary>一键生成新服务（③）：脚手架全套 + 端口自动分配 + 网关路由/部署脚本/compose 登记片段，登记后即可选为目标服务</summary>
+    [HttpPost("services/scaffold")]
+    [Permission("sys:codegen:manage")]
+    public async Task<ApiResult<CodegenServiceScaffoldResult>> ScaffoldService([FromBody] CodegenServiceScaffoldRequest req)
+        => ApiOk(await _svc.ScaffoldServiceAsync(req));
+
+    /// <summary>编译验证（⑤）：生成文件写入源码根目录（站点参数 codegen.repoRoot）并 dotnet build；restart=true 时编译通过后执行重启命令</summary>
+    [HttpPost("build-verify")]
+    [Permission("sys:codegen:manage")]
+    public async Task<ApiResult<CodegenBuildVerifyResult>> BuildVerify([FromBody] CodegenBuildVerifyRequest req)
+        => ApiOk(await _svc.BuildVerifyAsync(req));
 }

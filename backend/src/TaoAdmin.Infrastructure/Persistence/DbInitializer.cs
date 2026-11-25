@@ -24,6 +24,7 @@ public static class DbInitializer
             typeof(TaoAdmin.Domain.Entities.SysRegionMeta),
             typeof(TaoAdmin.Domain.Entities.SysAlertRule), typeof(TaoAdmin.Domain.Entities.SysNotifyLog),
             typeof(TaoAdmin.Domain.Entities.SysCodeGenTable), typeof(TaoAdmin.Domain.Entities.SysCodeGenRecord),
+            typeof(TaoAdmin.Domain.Entities.SysCodegenService),
             typeof(TaoAdmin.Domain.Entities.SysPasswordResetToken));
 
         if (db.Queryable<SysUser>().Count() == 0)
