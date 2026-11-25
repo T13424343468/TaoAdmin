@@ -709,4 +709,171 @@ public class CodeGenAppServiceTests
         // 运行时配置读取函数始终生成（配置驱动页面依赖）
         Assert.Contains("getBizContractConfig", api.content);
     }
+
+    // ==================== 主从表设计器 ====================
+
+    /// <summary>主表设计（合同）+ 从表设计（合同明细，含外键字段 contract_id）</summary>
+    private static async Task<(long MasterId, long DetailId)> SaveMasterDetailPair(CodeGenAppService svc, bool standalone = false)
+    {
+        var detailId = await svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_contract_item",
+            displayName = "合同明细",
+            fields = new List<CodegenFieldDesign>
+            {
+                new() { name = "contract_id", label = "合同", dataType = "long", nullable = false, control = "number", isIndex = true },
+                new() { name = "item_name", label = "品名", dataType = "string", length = 100, nullable = false, control = "text" },
+                new() { name = "qty", label = "数量", dataType = "int", nullable = true, control = "number" }
+            }
+        });
+        var masterId = await svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_contract",
+            displayName = "合同管理",
+            fields = ValidDesign().fields,
+            masterDetail = new CodegenMasterDetailConfig
+            {
+                details = new List<CodegenDetailTableConfig>
+                {
+                    new() { detailTableId = detailId, foreignKey = "contract_id", standalone = standalone, dataSource = "free" }
+                }
+            }
+        });
+        return (masterId, detailId);
+    }
+
+    [Fact]
+    public async Task SaveDesign_MasterDetail_ShouldPersist_AndValidate()
+    {
+        var (svc, _) = Create();
+        var (masterId, detailId) = await SaveMasterDetailPair(svc);
+
+        var master = await svc.GetAsync(masterId);
+        Assert.True(master.IsMasterDetail);
+        var md = master.ParseMasterDetail();
+        Assert.NotNull(md);
+        Assert.Equal(detailId, md!.details[0].detailTableId);
+        Assert.Equal("contract_id", md.details[0].foreignKey);
+
+        // 外键字段自动补索引标记
+        var detail = await svc.GetAsync(detailId);
+        Assert.True(detail.ParseFields().First(f => f.name == "contract_id").isIndex);
+
+        // 清空主从配置退回单表
+        var req = ValidDesign(); req.id = masterId; req.masterDetail = null;
+        await svc.SaveDesignAsync(req);
+        Assert.False((await svc.GetAsync(masterId)).IsMasterDetail);
+    }
+
+    [Fact]
+    public async Task SaveDesign_MasterDetail_InvalidConfigs_ShouldThrow()
+    {
+        var (svc, _) = Create();
+        var detailId = await svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_item", displayName = "明细",
+            fields = new List<CodegenFieldDesign> { new() { name = "item_name", label = "品名", dataType = "string", length = 50 } }
+        });
+        var masterId = await svc.SaveDesignAsync(ValidDesign());
+
+        // 从表设计不存在
+        await Assert.ThrowsAsync<DomainException>(() => svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_x1", displayName = "X1", fields = ValidDesign().fields,
+            masterDetail = new() { details = new() { new() { detailTableId = 999, foreignKey = "master_id" } } }
+        }));
+        // 缺外键字段名
+        await Assert.ThrowsAsync<DomainException>(() => svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_x2", displayName = "X2", fields = ValidDesign().fields,
+            masterDetail = new() { details = new() { new() { detailTableId = detailId, foreignKey = "" } } }
+        }));
+        // 外键字段不在从表字段清单
+        await Assert.ThrowsAsync<DomainException>(() => svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_x3", displayName = "X3", fields = ValidDesign().fields,
+            masterDetail = new() { details = new() { new() { detailTableId = detailId, foreignKey = "no_such_fk" } } }
+        }));
+        // 从表是主表自己
+        await Assert.ThrowsAsync<DomainException>(() => svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_x4", displayName = "X4", fields = ValidDesign().fields, id = masterId,
+            masterDetail = new() { details = new() { new() { detailTableId = masterId, foreignKey = "master_id" } } }
+        }));
+        // 同一配置从表重复
+        await Assert.ThrowsAsync<DomainException>(() => svc.SaveDesignAsync(new CodegenDesignSaveRequest
+        {
+            tableName = "biz_x5", displayName = "X5", fields = ValidDesign().fields,
+            masterDetail = new() { details = new() { new() { detailTableId = detailId, foreignKey = "item_name" }, new() { detailTableId = detailId, foreignKey = "item_name" } } }
+        }));
+    }
+
+    [Fact]
+    public async Task SyncToDatabase_MasterDetail_ShouldCascadeCreateDetailTable()
+    {
+        var (svc, db) = Create();
+        var (masterId, _) = await SaveMasterDetailPair(svc);
+
+        var result = await svc.SyncToDatabaseAsync(masterId);
+        Assert.Contains(result.actions, a => a.Contains("[从表]"));
+        Assert.Contains(GetColumns(db, "biz_contract_item"), c => c == "contract_id");
+        // 幂等：再跑一次不重复执行
+        var again = await svc.SyncToDatabaseAsync(masterId);
+        Assert.DoesNotContain(again.actions, a => a.Contains("已建表"));
+    }
+
+    [Fact]
+    public async Task Generate_MasterDetail_ShouldProduceNestedTransactionStack()
+    {
+        var (svc, _) = Create();
+        var (masterId, detailId) = await SaveMasterDetailPair(svc, standalone: false);
+        var gen = await svc.GenerateAsync(masterId);
+
+        // 主表服务：整单一个事务保存 + 从表行替换 + 级联删除 + 详情 DTO
+        var masterSvc = gen.files.First(f => f.path.EndsWith("BizContractAppService.cs"));
+        Assert.Contains("UseTranAsync", masterSvc.content);
+        Assert.Contains("ReplaceDetails0Async", masterSvc.content);
+        Assert.Contains("List<BizContractItemSaveRequest>? details0", masterSvc.content);
+        Assert.Contains("BizContractWithDetails", masterSvc.content);
+        Assert.Contains("t.ContractId == id", masterSvc.content);
+
+        // 主表控制器：详情返回带从表 DTO
+        var masterCtrl = gen.files.First(f => f.path.EndsWith("BizContractController.cs"));
+        Assert.Contains("ApiResult<BizContractWithDetails>", masterCtrl.content);
+
+        // 主表页面：行编辑 + 详情抽屉 + 保存契约
+        var masterPage = gen.files.First(f => f.path.EndsWith("views/bizContract/index.vue"));
+        Assert.Contains("addDetailRow(0)", masterPage.content);
+        Assert.Contains("detailColumns(0)", masterPage.content);
+        Assert.Contains("openDetail", masterPage.content);
+        Assert.Contains("a-drawer", masterPage.content);
+        Assert.Contains("payload['details' + i]", masterPage.content);
+
+        // 从表：后端全套始终生成；非独立从表不出独立页面与菜单
+        Assert.Contains(gen.files, f => f.path.EndsWith("BizContractItemAppService.cs"));
+        Assert.Contains(gen.files, f => f.path.EndsWith("BizContractItemController.cs"));
+        Assert.Contains(gen.files, f => f.path.EndsWith("/api/bizContractItem.ts"));
+        Assert.DoesNotContain(gen.files, f => f.path.EndsWith("views/bizContractItem/index.vue"));
+        Assert.DoesNotContain(gen.files, f => f.path.Contains("generated/biz_contract_item/"));
+
+        // 独立从表：另出独立页面与菜单
+        var (svc2, _) = Create();
+        var (standaloneMasterId, _) = await SaveMasterDetailPair(svc2, standalone: true);
+        var gen2 = await svc2.GenerateAsync(standaloneMasterId);
+        Assert.Contains(gen2.files, f => f.path.EndsWith("views/bizContractItem/index.vue"));
+        Assert.Contains(gen2.files, f => f.path.Contains("generated/biz_contract_item/"));
+    }
+
+    [Fact]
+    public async Task GetConfig_MasterDetail_ShouldIncludeDetailFields()
+    {
+        var (svc, _) = Create();
+        var (masterId, _) = await SaveMasterDetailPair(svc);
+        var config = await svc.GetConfigAsync(masterId);
+
+        var detail = Assert.Single(config.details);
+        Assert.Equal("biz_contract_item", detail.tableName);
+        Assert.Equal("contract_id", detail.foreignKey);
+        Assert.Contains(detail.fields, f => f.name == "item_name");
+    }
 }

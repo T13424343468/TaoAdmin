@@ -48,6 +48,23 @@ public class CodegenModuleConfig
     public string displayName { get; set; } = "";
     public List<CodegenFieldDesign> fields { get; set; } = new();
     public CodegenEnhancementConfig enhancement { get; set; } = new();
+    /// <summary>主从配置：主表生成页按此渲染从表行编辑区（从表字段同样配置驱动，补配即生效）</summary>
+    public List<CodegenDetailModuleConfig> details { get; set; } = new();
+}
+
+/// <summary>主从模块运行时配置中的单个从表（主表生成页行编辑区按此渲染）</summary>
+public class CodegenDetailModuleConfig
+{
+    public string tableName { get; set; } = "";
+    public string displayName { get; set; } = "";
+    /// <summary>从表外键字段名（指向主表 Id）</summary>
+    public string foreignKey { get; set; } = "";
+    /// <summary>是否生成了独立全套功能</summary>
+    public bool standalone { get; set; }
+    /// <summary>数据来源：free=自由录入，dict=从字典挑</summary>
+    public string dataSource { get; set; } = "free";
+    public string? dictCode { get; set; }
+    public List<CodegenFieldDesign> fields { get; set; } = new();
 }
 
 /// <summary>生成结果：文件清单 + 记录 Id</summary>
@@ -173,7 +190,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
     public async Task<CodegenModuleConfig> GetConfigAsync(long id)
     {
         var design = await GetAsync(id);
-        return new CodegenModuleConfig
+        var config = new CodegenModuleConfig
         {
             id = design.Id.ToString(),
             tableName = design.TableName,
@@ -181,6 +198,26 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             fields = design.ParseFields(),
             enhancement = design.ParseEnhancement() ?? new CodegenEnhancementConfig(),
         };
+        // 主从表：从表字段清单随配置下发，主表生成页行编辑区按配置渲染（补配即生效）
+        var md = design.IsMasterDetail ? design.ParseMasterDetail() : null;
+        if (md != null)
+        {
+            foreach (var d in md.details)
+            {
+                var dd = await GetAsync(d.detailTableId);
+                config.details.Add(new CodegenDetailModuleConfig
+                {
+                    tableName = dd.TableName,
+                    displayName = dd.DisplayName,
+                    foreignKey = d.foreignKey,
+                    standalone = d.standalone,
+                    dataSource = d.dataSource,
+                    dictCode = d.dictCode,
+                    fields = dd.ParseFields(),
+                });
+            }
+        }
+        return config;
     }
 
     /// <summary>删除设计（软删，不动已生成的数据库表与代码）</summary>
@@ -267,7 +304,9 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
 
     // ==================== 一键生成 ====================
 
-    /// <summary>一键生成全套增删改查前后端代码，落生成记录</summary>
+    /// <summary>一键生成全套增删改查前后端代码，落生成记录。
+    /// 主从表：主表生成嵌从表行编辑的全套（整单一个事务保存、删主带删明细、详情抽屉）；
+    /// 从表始终生成后端全套（主表保存契约依赖从表 SaveRequest），standalone=true 时另生成独立页面与菜单。</summary>
     public async Task<CodegenGenerateResult> GenerateAsync(long tableId, string mode = "generate")
     {
         var sw = Stopwatch.StartNew();
@@ -275,24 +314,65 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         var fields = design.ParseFields();
         if (fields.Count == 0) throw new DomainException("字段清单为空，请先在设计器里画字段");
 
-        var entityName = ToPascal(design.TableName);
-        var camel = ToCamel(entityName);
-        var files = new List<CodegenFile>
+        var files = new List<CodegenFile>();
+        var md = design.IsMasterDetail ? design.ParseMasterDetail() : null;
+        if (md != null && md.details.Count > 0)
         {
-            new() { path = $"backend/src/TaoAdmin.Domain/Entities/{entityName}.cs", content = GenEntity(design, fields) },
-            new() { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.cs", content = GenAppService(design, fields, entityName) },
-            new() { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.Extensions.cs", content = GenExtensionStub(entityName) },
-            new() { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{entityName}Controller.cs", content = GenController(design, fields, entityName) },
-            new() { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel) },
-            new() { path = $"frontend/src/views/{camel}/index.vue", content = GenFrontendPage(design, fields, entityName, camel) },
-        };
+            // ---------- 主从表：主表 + 各从表 ----------
+            var entityName = ToPascal(design.TableName);
+            var camel = ToCamel(entityName);
+            // 从表设计一次性载入（保存校验已保证存在且不重复）
+            var detailPairs = new List<(CodegenDetailTableConfig Cfg, SysCodeGenTable Design, List<CodegenFieldDesign> Fields, string Entity, string Camel)>();
+            foreach (var d in md.details)
+            {
+                var dd = await GetAsync(d.detailTableId);
+                var dfields = dd.ParseFields();
+                if (dfields.Count == 0) throw new DomainException($"从表 {dd.DisplayName} 字段清单为空，请先在设计器里画字段");
+                var dEntity = ToPascal(dd.TableName);
+                detailPairs.Add((d, dd, dfields, dEntity, ToCamel(dEntity)));
+            }
 
-        // 权限与菜单初始化数据（SQL）：装上即可在角色里勾选
-        files.Add(new CodegenFile
+            // 主表：实体（标准）+ 服务（嵌从表事务保存）+ 扩展桩 + 控制器（详情带从表）+ 前端接口 + 页面（行编辑+详情抽屉）+ 菜单权限
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Domain/Entities/{entityName}.cs", content = GenEntity(design, fields) });
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.cs", content = GenAppService(design, fields, entityName, detailPairs) });
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.Extensions.cs", content = GenExtensionStub(entityName) });
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{entityName}Controller.cs", content = GenController(design, fields, entityName, withDetails: true) });
+            files.Add(new CodegenFile { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel) });
+            files.Add(new CodegenFile { path = $"frontend/src/views/{camel}/index.vue", content = GenFrontendPage(design, fields, entityName, camel, detailPairs) });
+            files.Add(new CodegenFile { path = $"generated/{design.TableName}/menu-permission-init.sql", content = GenMenuPermissionSql(design, entityName) });
+
+            // 从表：后端全套始终生成（主表保存契约引用从表 SaveRequest）；独立功能另出页面与菜单
+            foreach (var (cfg, ddesign, dfields, dEntity, dCamel) in detailPairs)
+            {
+                files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Domain/Entities/{dEntity}.cs", content = GenEntity(ddesign, dfields) });
+                files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{dEntity}AppService.cs", content = GenAppService(ddesign, dfields, dEntity) });
+                files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{dEntity}AppService.Extensions.cs", content = GenExtensionStub(dEntity) });
+                files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{dEntity}Controller.cs", content = GenController(ddesign, dfields, dEntity) });
+                files.Add(new CodegenFile { path = $"frontend/src/api/{dCamel}.ts", content = GenFrontendApi(ddesign, dfields, dEntity, dCamel) });
+                if (cfg.standalone)
+                {
+                    files.Add(new CodegenFile { path = $"frontend/src/views/{dCamel}/index.vue", content = GenFrontendPage(ddesign, dfields, dEntity, dCamel) });
+                    files.Add(new CodegenFile { path = $"generated/{ddesign.TableName}/menu-permission-init.sql", content = GenMenuPermissionSql(ddesign, dEntity) });
+                }
+            }
+        }
+        else
         {
-            path = $"generated/{design.TableName}/menu-permission-init.sql",
-            content = GenMenuPermissionSql(design, entityName)
-        });
+            // ---------- 单表（原口径不变） ----------
+            var entityName = ToPascal(design.TableName);
+            var camel = ToCamel(entityName);
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Domain/Entities/{entityName}.cs", content = GenEntity(design, fields) });
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.cs", content = GenAppService(design, fields, entityName) });
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.Extensions.cs", content = GenExtensionStub(entityName) });
+            files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.IdentityService/Controllers/{entityName}Controller.cs", content = GenController(design, fields, entityName) });
+            files.Add(new CodegenFile { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel) });
+            files.Add(new CodegenFile { path = $"frontend/src/views/{camel}/index.vue", content = GenFrontendPage(design, fields, entityName, camel) });
+            files.Add(new CodegenFile
+            {
+                path = $"generated/{design.TableName}/menu-permission-init.sql",
+                content = GenMenuPermissionSql(design, entityName)
+            });
+        }
 
         sw.Stop();
         var record = new SysCodeGenRecord
@@ -495,19 +575,21 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             };
             sb.AppendLine($"    /// <summary>{f.label}</summary>");
             sb.AppendLine($"    {colAttr}");
-            sb.AppendLine($"    public {NullableCs(f)} {ToPascal(f.name)} {{ get; set; }}{(f.nullable && (f.dataType == "string") ? " = string.Empty;" : "")}");
+            sb.AppendLine($"    public {NullableCs(f)} {ToPascal(f.name)} {{ get; set; }}{(f.nullable ? "" : (f.dataType == "string" || f.dataType == "text" ? " = string.Empty;" : " = default;"))}");
             sb.AppendLine();
         }
         sb.AppendLine("}");
         return sb.ToString();
     }
 
-    private static string GenAppService(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName)
+    private static string GenAppService(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName,
+        List<(CodegenDetailTableConfig Cfg, SysCodeGenTable Design, List<CodegenFieldDesign> Fields, string Entity, string Camel)>? masterDetails = null)
     {
         var camel = ToCamel(entityName);
         var sb = new StringBuilder();
         sb.AppendLine(MarkerHeader);
         sb.AppendLine("using TaoAdmin.Common.Http;");
+        sb.AppendLine("using TaoAdmin.Common.Snowflake;");
         sb.AppendLine("using TaoAdmin.Domain;");
         sb.AppendLine("using TaoAdmin.Domain.Entities;");
         sb.AppendLine("using SqlSugar;");
@@ -535,54 +617,135 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("        return new PageResult<" + entityName + "> { Items = list, Total = total, PageIndex = pageIndex, PageSize = pageSize };");
         sb.AppendLine("    }");
         sb.AppendLine();
-        // 详情
-        sb.AppendLine($"    /// <summary>详情</summary>");
-        sb.AppendLine($"    public async Task<{entityName}> GetAsync(long id)");
-        sb.AppendLine($"        => await db.Queryable<{entityName}>().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
-        sb.AppendLine($"           ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
+        // 详情（主从表返回主行 + 各从表行清单）
+        if (masterDetails != null)
+        {
+            sb.AppendLine($"    /// <summary>详情（含从表行清单）</summary>");
+            sb.AppendLine($"    public async Task<{entityName}WithDetails> GetAsync(long id)");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        var master = await db.Queryable<{entityName}>().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
+            sb.AppendLine($"           ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
+            sb.AppendLine($"        var result = new {entityName}WithDetails {{ master = master }};");
+            for (var i = 0; i < masterDetails.Count; i++)
+            {
+                var dEntity = masterDetails[i].Entity;
+                var fkPascal = ToPascal(masterDetails[i].Cfg.foreignKey);
+                sb.AppendLine($"        result.details{i} = await db.Queryable<{dEntity}>().Where(t => t.{fkPascal} == id && t.IsDeleted == false).OrderBy(t => t.Id).ToListAsync();");
+            }
+            sb.AppendLine("        return result;");
+            sb.AppendLine("    }");
+        }
+        else
+        {
+            sb.AppendLine($"    /// <summary>详情</summary>");
+            sb.AppendLine($"    public async Task<{entityName}> GetAsync(long id)");
+            sb.AppendLine($"        => await db.Queryable<{entityName}>().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
+            sb.AppendLine($"           ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
+        }
         sb.AppendLine();
-        // 保存（增/改）
-        var reqProps = string.Join("\n", fields.Select(f => $"    /// <summary>{f.label}</summary>\n    public {NullableCs(f)} {ToPascal(f.name)} {{ get; set; }}"));
-        sb.AppendLine($"/// <summary>{design.DisplayName} 保存请求</summary>");
-        sb.AppendLine($"public class {entityName}SaveRequest");
-        sb.AppendLine("{");
-        sb.AppendLine("    /// <summary>Id（更新时传）</summary>");
-        sb.AppendLine("    public long? id { get; set; }");
-        sb.AppendLine(reqProps);
-        sb.AppendLine("}");
-        sb.AppendLine();
+        // 保存（增/改）。保存请求类在方法体后统一以命名空间级类型输出（嵌在服务类内会导致控制器/主表无法引用）
+        var reqProps = string.Join("\n", fields.Select(f => $"    /// <summary>{f.label}</summary>\n    public {NullableCs(f)} {ToPascal(f.name)} {{ get; set; }}{(f.nullable ? "" : (f.dataType == "string" || f.dataType == "text" ? " = string.Empty;" : " = default;"))}"));
+        var detailProps = new StringBuilder();
+        if (masterDetails != null)
+        {
+            for (var i = 0; i < masterDetails.Count; i++)
+            {
+                detailProps.AppendLine($"    /// <summary>从表行清单：{masterDetails[i].Design.DisplayName}（整单一个事务保存；未传的旧行视为删除）</summary>");
+                detailProps.AppendLine($"    public List<{masterDetails[i].Entity}SaveRequest>? details{i} {{ get; set; }}");
+            }
+        }
         sb.AppendLine($"    /// <summary>保存（新增或更新）</summary>");
-        sb.AppendLine($"    public async Task<long> SaveAsync({entityName}SaveRequest req)");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        {entityName} row;");
-        sb.AppendLine("        if (req.id is long id && id > 0)");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            row = await db.Queryable<{entityName}>().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
-        sb.AppendLine($"                ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
-        sb.AppendLine("        }");
-        sb.AppendLine("        else");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            row = new {entityName} {{ Id = snowflake.NextId() }};");
-        sb.AppendLine("        }");
-        foreach (var f in fields)
-            sb.AppendLine($"        row.{ToPascal(f.name)} = req.{ToPascal(f.name)};");
-        sb.AppendLine("        row.UpdatedAt = DateTime.Now;");
-        sb.AppendLine("        if (req.id is long uid && uid > 0)");
-        sb.AppendLine("            await db.Updateable(row).ExecuteCommandAsync();");
-        sb.AppendLine("        else");
-        sb.AppendLine("            await db.Insertable(row).ExecuteCommandAsync();");
-        sb.AppendLine("        return row.Id;");
-        sb.AppendLine("    }");
+        if (masterDetails != null)
+        {
+            // 主从表：主行 + 各从表行整单一个事务（任一步失败整体回滚）
+            sb.AppendLine($"    public async Task<long> SaveAsync({entityName}SaveRequest req)");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        {entityName} row;");
+            sb.AppendLine("        if (req.id is long id && id > 0)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            row = await db.Queryable<{entityName}>().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
+            sb.AppendLine($"                ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
+            sb.AppendLine("        }");
+            sb.AppendLine("        else");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            row = new {entityName} {{ Id = snowflake.NextId() }};");
+            sb.AppendLine("        }");
+            foreach (var f in fields)
+                sb.AppendLine($"        row.{ToPascal(f.name)} = req.{ToPascal(f.name)};");
+            sb.AppendLine("        var tran = await db.Ado.UseTranAsync(async () =>");
+            sb.AppendLine("        {");
+            sb.AppendLine("            row.UpdatedAt = DateTime.Now;");
+            sb.AppendLine("            if (req.id is long uid && uid > 0)");
+            sb.AppendLine("                await db.Updateable(row).ExecuteCommandAsync();");
+            sb.AppendLine("            else");
+            sb.AppendLine("                await db.Insertable(row).ExecuteCommandAsync();");
+            for (var i = 0; i < masterDetails.Count; i++)
+                sb.AppendLine($"            await ReplaceDetails{i}Async(row.Id, req.details{i});");
+            sb.AppendLine("        });");
+            sb.AppendLine("        if (!tran.IsSuccess) throw new DomainException($\"保存失败：{tran.ErrorMessage}\");");
+            sb.AppendLine("        return row.Id;");
+            sb.AppendLine("    }");
+        }
+        else
+        {
+            sb.AppendLine($"    public async Task<long> SaveAsync({entityName}SaveRequest req)");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        {entityName} row;");
+            sb.AppendLine("        if (req.id is long id && id > 0)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            row = await db.Queryable<{entityName}>().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
+            sb.AppendLine($"                ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
+            sb.AppendLine("        }");
+            sb.AppendLine("        else");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            row = new {entityName} {{ Id = snowflake.NextId() }};");
+            sb.AppendLine("        }");
+            foreach (var f in fields)
+                sb.AppendLine($"        row.{ToPascal(f.name)} = req.{ToPascal(f.name)};");
+            sb.AppendLine("        row.UpdatedAt = DateTime.Now;");
+            sb.AppendLine("        if (req.id is long uid && uid > 0)");
+            sb.AppendLine("            await db.Updateable(row).ExecuteCommandAsync();");
+            sb.AppendLine("        else");
+            sb.AppendLine("            await db.Insertable(row).ExecuteCommandAsync();");
+            sb.AppendLine("        return row.Id;");
+            sb.AppendLine("    }");
+        }
         sb.AppendLine();
-        // 删除
-        sb.AppendLine($"    /// <summary>删除（软删）</summary>");
-        sb.AppendLine($"    public async Task DeleteAsync(long id)");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        var row = await GetAsync(id);");
-        sb.AppendLine("        row.IsDeleted = true;");
-        sb.AppendLine("        row.UpdatedAt = DateTime.Now;");
-        sb.AppendLine("        await db.Updateable(row).ExecuteCommandAsync();");
-        sb.AppendLine("    }");
+        // 删除（主从表：删主带删明细，同一事务）
+        if (masterDetails != null)
+        {
+            sb.AppendLine($"    /// <summary>删除（软删；从表行连带软删，同一事务）</summary>");
+            sb.AppendLine($"    public async Task DeleteAsync(long id)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var row = await db.Queryable<" + entityName + ">().FirstAsync(t => t.Id == id && t.IsDeleted == false)");
+            sb.AppendLine($"           ?? throw new DomainException(\"{design.DisplayName}不存在或已删除\");");
+            sb.AppendLine("        var tran = await db.Ado.UseTranAsync(async () =>");
+            sb.AppendLine("        {");
+            sb.AppendLine("            row.IsDeleted = true;");
+            sb.AppendLine("            row.UpdatedAt = DateTime.Now;");
+            sb.AppendLine("            await db.Updateable(row).ExecuteCommandAsync();");
+            for (var i = 0; i < masterDetails.Count; i++)
+            {
+                var fkPascal = ToPascal(masterDetails[i].Cfg.foreignKey);
+                var dEntity = masterDetails[i].Entity;
+                sb.AppendLine($"            await db.Updateable<{dEntity}>().SetColumns(t => t.IsDeleted == true).SetColumns(t => t.UpdatedAt == DateTime.Now)");
+                sb.AppendLine($"                .Where(t => t.{fkPascal} == id && t.IsDeleted == false).ExecuteCommandAsync();");
+            }
+            sb.AppendLine("        });");
+            sb.AppendLine("        if (!tran.IsSuccess) throw new DomainException($\"删除失败：{tran.ErrorMessage}\");");
+            sb.AppendLine("    }");
+        }
+        else
+        {
+            sb.AppendLine($"    /// <summary>删除（软删）</summary>");
+            sb.AppendLine($"    public async Task DeleteAsync(long id)");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        var row = await GetAsync(id);");
+            sb.AppendLine("        row.IsDeleted = true;");
+            sb.AppendLine("        row.UpdatedAt = DateTime.Now;");
+            sb.AppendLine("        await db.Updateable(row).ExecuteCommandAsync();");
+            sb.AppendLine("    }");
+        }
         sb.AppendLine();
         sb.AppendLine($"    /// <summary>批量删除（软删，返回实际删除数）</summary>");
         sb.AppendLine($"    public async Task<int> BatchDeleteAsync(List<long> ids)");
@@ -598,7 +761,68 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         var enh = design.ParseEnhancement();
         if (enh != null && (enh.importEnabled || enh.exportEnabled))
             sb.Append(GenExcelSupport(design, fields, entityName));
+        // 主从表：从表行替换（整单保存口径：传来的行保留/更新，未传的旧行软删）+ 详情 DTO
+        if (masterDetails != null)
+        {
+            for (var i = 0; i < masterDetails.Count; i++)
+            {
+                var (cfg, ddesign, dfields, dEntity, _) = masterDetails[i];
+                var fkPascal = ToPascal(cfg.foreignKey);
+                sb.AppendLine();
+                sb.AppendLine($"    /// <summary>替换从表「{ddesign.DisplayName}」行：传来的行保留/更新，未传的旧行软删（外键强制指向主行）</summary>");
+                sb.AppendLine($"    private async Task ReplaceDetails{i}Async(long masterId, List<{dEntity}SaveRequest>? rows)");
+                sb.AppendLine("    {");
+                sb.AppendLine("        var keepIds = rows?.Where(r => r.id is long k && k > 0).Select(r => r.id!.Value).ToList() ?? new List<long>();");
+                sb.AppendLine($"        await db.Updateable<{dEntity}>().SetColumns(t => t.IsDeleted == true).SetColumns(t => t.UpdatedAt == DateTime.Now)");
+                sb.AppendLine($"            .Where(t => t.{fkPascal} == masterId && t.IsDeleted == false && !keepIds.Contains(t.Id)).ExecuteCommandAsync();");
+                sb.AppendLine("        if (rows == null) return;");
+                sb.AppendLine($"        foreach (var r in rows)");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            {dEntity} drow;");
+                sb.AppendLine("            if (r.id is long did && did > 0)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                drow = await db.Queryable<{dEntity}>().FirstAsync(t => t.Id == did && t.IsDeleted == false)");
+                sb.AppendLine($"                    ?? throw new DomainException(\"{ddesign.DisplayName}行不存在或已删除\");");
+                sb.AppendLine("            }");
+                sb.AppendLine("            else");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                drow = new {dEntity} {{ Id = snowflake.NextId() }};");
+                sb.AppendLine("            }");
+                foreach (var f in dfields)
+                    sb.AppendLine($"            drow.{ToPascal(f.name)} = r.{ToPascal(f.name)};");
+                sb.AppendLine($"            drow.{fkPascal} = masterId;");
+                sb.AppendLine("            drow.UpdatedAt = DateTime.Now;");
+                sb.AppendLine("            if (r.id is long udid && udid > 0)");
+                sb.AppendLine("                await db.Updateable(drow).ExecuteCommandAsync();");
+                sb.AppendLine("            else");
+                sb.AppendLine("                await db.Insertable(drow).ExecuteCommandAsync();");
+                sb.AppendLine("        }");
+                sb.AppendLine("    }");
+            }
+        }
         sb.AppendLine("}");
+        // 命名空间级类型：保存请求 + 主从详情 DTO（必须在服务类外，控制器与主表保存契约才能引用）
+        sb.AppendLine();
+        sb.AppendLine($"/// <summary>{design.DisplayName} 保存请求</summary>");
+        sb.AppendLine($"public class {entityName}SaveRequest");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>Id（更新时传）</summary>");
+        sb.AppendLine("    public long? id { get; set; }");
+        sb.AppendLine(reqProps);
+        if (masterDetails != null)
+            sb.Append(detailProps);
+        sb.AppendLine("}");
+        if (masterDetails != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"/// <summary>{design.DisplayName} 详情（主行 + 各从表行清单）</summary>");
+            sb.AppendLine($"public class {entityName}WithDetails");
+            sb.AppendLine("{");
+            sb.AppendLine($"    public {entityName} master {{ get; set; }} = null!;");
+            for (var i = 0; i < masterDetails.Count; i++)
+                sb.AppendLine($"    public List<{masterDetails[i].Entity}> details{i} {{ get; set; }} = new();");
+            sb.AppendLine("}");
+        }
         return sb.ToString();
     }
 
@@ -804,14 +1028,17 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         return sb.ToString();
     }
 
-    private static string GenController(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName)
+    private static string GenController(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, bool withDetails = false)
     {
         var perm = $"gen:{design.TableName}:manage";
         var sb = new StringBuilder();
         sb.AppendLine(MarkerHeader);
         sb.AppendLine("using TaoAdmin.Application.Services;");
+        sb.AppendLine("using TaoAdmin.Common.Auth;");
         sb.AppendLine("using TaoAdmin.Common.Http;");
         sb.AppendLine("using TaoAdmin.Common.Web;");
+        sb.AppendLine("using TaoAdmin.Domain.Entities;");
+        sb.AppendLine("using Microsoft.AspNetCore.Authorization;");
         sb.AppendLine("using Microsoft.AspNetCore.Mvc;");
         sb.AppendLine();
         sb.AppendLine("namespace TaoAdmin.IdentityService.Controllers;");
@@ -829,11 +1056,22 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine($"    public async Task<ApiResult<PageResult<{entityName}>>> Page([FromQuery] int pageIndex = 1, [FromQuery] int pageSize = 10, [FromQuery] string? keyword = null)");
         sb.AppendLine($"        => ApiOk(await _svc.PageAsync(pageIndex, pageSize, keyword));");
         sb.AppendLine();
-        sb.AppendLine($"    /// <summary>详情</summary>");
-        sb.AppendLine($"    [HttpGet(\"{{id}}\")]");
-        sb.AppendLine($"    [Permission(\"{perm}\")]");
-        sb.AppendLine($"    public async Task<ApiResult<{entityName}>> Get(string id)");
-        sb.AppendLine($"        => ApiOk(await _svc.GetAsync(long.Parse(id)));");
+        if (withDetails)
+        {
+            sb.AppendLine($"    /// <summary>详情（含从表行清单）</summary>");
+            sb.AppendLine($"    [HttpGet(\"{{id}}\")]");
+            sb.AppendLine($"    [Permission(\"{perm}\")]");
+            sb.AppendLine($"    public async Task<ApiResult<{entityName}WithDetails>> Get(string id)");
+            sb.AppendLine($"        => ApiOk(await _svc.GetAsync(long.Parse(id)));");
+        }
+        else
+        {
+            sb.AppendLine($"    /// <summary>详情</summary>");
+            sb.AppendLine($"    [HttpGet(\"{{id}}\")]");
+            sb.AppendLine($"    [Permission(\"{perm}\")]");
+            sb.AppendLine($"    public async Task<ApiResult<{entityName}>> Get(string id)");
+            sb.AppendLine($"        => ApiOk(await _svc.GetAsync(long.Parse(id)));");
+        }
         sb.AppendLine();
         sb.AppendLine($"    /// <summary>保存（新增或更新）</summary>");
         sb.AppendLine($"    [HttpPost]");
@@ -1037,7 +1275,8 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         _ => "string"
     };
 
-    private static string GenFrontendPage(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, string camel)
+    private static string GenFrontendPage(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, string camel,
+        List<(CodegenDetailTableConfig Cfg, SysCodeGenTable Design, List<CodegenFieldDesign> Fields, string Entity, string Camel)>? masterDetails = null)
     {
         // 配置驱动页面：字段清单/字典关联/查询配置/导入导出按钮均按运行时配置渲染（增强配置补配即生效，无需重新生成）
         var enh = design.ParseEnhancement();
@@ -1052,10 +1291,14 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("      <a-button type=\"primary\" style=\"margin-left: 8px\" @click=\"loadData()\">查询</a-button>");
         sb.AppendLine("      <a-button style=\"margin-left: 8px\" @click=\"resetQuery\">重置</a-button>");
         sb.AppendLine("      <a-button type=\"primary\" style=\"margin-left: 12px\" @click=\"openCreate\">新增</a-button>");
-        sb.AppendLine("      <a-button v-if=\"enhancement.exportEnabled\" style=\"margin-left: 12px\" @click=\"onExport\">导出</a-button>");
-        sb.AppendLine("      <a-upload v-if=\"enhancement.importEnabled\" :show-upload-list=\"false\" :before-upload=\"onImport\" accept=\".xlsx,.xls\" style=\"margin-left: 12px\">");
-        sb.AppendLine("        <a-button>导入</a-button>");
-        sb.AppendLine("      </a-upload>");
+        if (enh != null && enh.exportEnabled)
+            sb.AppendLine("      <a-button v-if=\"enhancement.exportEnabled\" style=\"margin-left: 12px\" @click=\"onExport\">导出</a-button>");
+        if (enh != null && enh.importEnabled)
+        {
+            sb.AppendLine("      <a-upload v-if=\"enhancement.importEnabled\" :show-upload-list=\"false\" :before-upload=\"onImport\" accept=\".xlsx,.xls\" style=\"margin-left: 12px\">");
+            sb.AppendLine("        <a-button>导入</a-button>");
+            sb.AppendLine("      </a-upload>");
+        }
         sb.AppendLine("      <a-space v-if=\"selectedRowKeys.length > 0\" style=\"margin-left: 12px\">");
         sb.AppendLine("        <span>已选 {{ selectedRowKeys.length }} 项</span>");
         sb.AppendLine("        <a-button danger @click=\"onBatchDelete\">批量删除</a-button>");
@@ -1076,6 +1319,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("      <template #bodyCell=\"{ column, record }\">");
         sb.AppendLine("        <template v-if=\"column.key === 'action'\">");
         sb.AppendLine("          <a-space>");
+        sb.AppendLine("            <a @click=\"openDetail(record)\">详情</a>");
         sb.AppendLine("            <a @click=\"openEdit(record)\">编辑</a>");
         sb.AppendLine("            <a-popconfirm title=\"确定删除该条记录吗？\" @confirm=\"onDelete(record)\">");
         sb.AppendLine("              <a class=\"danger-link\">删除</a>");
@@ -1102,8 +1346,52 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("          <a-switch v-else-if=\"ctrlKind(f) === 'switch'\" v-model:checked=\"form[f.name]\" />");
         sb.AppendLine("          <a-input v-else v-model:value=\"form[f.name]\" />");
         sb.AppendLine("        </a-form-item>");
+        if (masterDetails != null)
+        {
+            // 主从表：表单内嵌从表行编辑（整单一个事务保存）
+            for (var i = 0; i < masterDetails.Count; i++)
+            {
+                sb.AppendLine($"        <a-divider plain>{{{{ detailName({i}) }}}}（明细行）</a-divider>");
+                sb.AppendLine("        <div style=\"margin-bottom: 8px\">");
+                sb.AppendLine($"          <a-button size=\"small\" type=\"dashed\" @click=\"addDetailRow({i})\">添加一行</a-button>");
+                sb.AppendLine("        </div>");
+                sb.AppendLine($"        <a-table :data-source=\"detailRows[{i}] || []\" :columns=\"detailColumns({i})\" row-key=\"__k\" :pagination=\"false\" size=\"small\">");
+                sb.AppendLine("          <template #bodyCell=\"{ column, record, index }\">");
+                sb.AppendLine("            <template v-if=\"column.key === '__op'\">");
+                sb.AppendLine($"              <a-popconfirm title=\"删除该明细行？\" @confirm=\"(detailRows[{i}] || []).splice(index, 1)\">");
+                sb.AppendLine("                <a class=\"danger-link\">删除</a>");
+                sb.AppendLine("              </a-popconfirm>");
+                sb.AppendLine("            </template>");
+                sb.AppendLine("            <template v-else>");
+                sb.AppendLine($"              <a-input-number v-if=\"detailCtrlKind({i}, column.key) === 'number'\" v-model:value=\"record[column.key]\" size=\"small\" style=\"width: 100%\" />");
+                sb.AppendLine($"              <a-date-picker v-else-if=\"detailCtrlKind({i}, column.key) === 'date'\" v-model:value=\"record[column.key]\" show-time value-format=\"YYYY-MM-DD HH:mm:ss\" size=\"small\" style=\"width: 100%\" />");
+                sb.AppendLine($"              <a-select v-else-if=\"detailCtrlKind({i}, column.key) === 'dict'\" v-model:value=\"record[column.key]\" :options=\"dictOptions[detailDictCode({i}, column.key)] || []\" size=\"small\" allow-clear style=\"width: 100%\" />");
+                sb.AppendLine($"              <a-switch v-else-if=\"detailCtrlKind({i}, column.key) === 'switch'\" v-model:checked=\"record[column.key]\" />");
+                sb.AppendLine($"              <a-textarea v-else-if=\"detailCtrlKind({i}, column.key) === 'textarea'\" v-model:value=\"record[column.key]\" :rows=\"2\" />");
+                sb.AppendLine("              <a-input v-else v-model:value=\"record[column.key]\" size=\"small\" />");
+                sb.AppendLine("            </template>");
+                sb.AppendLine("          </template>");
+                sb.AppendLine("        </a-table>");
+            }
+        }
         sb.AppendLine("      </a-form>");
         sb.AppendLine("    </a-modal>");
+        if (masterDetails != null)
+        {
+            // 主从表：详情抽屉（列表点行开抽屉，从表行只读展示）
+            sb.AppendLine("    <a-drawer v-model:open=\"drawerVisible\" :title=\"detailTitle\" width=\"640\">");
+            sb.AppendLine("      <div v-for=\"(dc, di) in config.details\" :key=\"di\" style=\"margin-bottom: 16px\">");
+            sb.AppendLine("        <h4 style=\"margin: 0 0 8px\">{{ dc.displayName }}</h4>");
+            sb.AppendLine("        <a-table :data-source=\"detailViewRows[Number(di)] || []\" :columns=\"detailViewColumns(Number(di))\" row-key=\"id\" size=\"small\" :pagination=\"false\">");
+            sb.AppendLine("          <template #bodyCell=\"{ column, record }\">");
+            sb.AppendLine("            <template v-if=\"detailKind(Number(di), column.key) === 'dict'\">{{ dictLabel(detailDictCode(Number(di), column.key), record[column.key]) }}</template>");
+            sb.AppendLine("            <template v-else-if=\"detailKind(Number(di), column.key) === 'bool'\">{{ record[column.key] ? '是' : '否' }}</template>");
+            sb.AppendLine("            <template v-else>{{ record[column.key] }}</template>");
+            sb.AppendLine("          </template>");
+            sb.AppendLine("        </a-table>");
+            sb.AppendLine("      </div>");
+            sb.AppendLine("    </a-drawer>");
+        }
         sb.AppendLine("  </div>");
         sb.AppendLine("</template>");
         sb.AppendLine();
@@ -1153,6 +1441,14 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("const dialogVisible = ref(false)");
         sb.AppendLine("const pagination = reactive({ current: 1, pageSize: 10, total: 0, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` })");
         sb.AppendLine("const form = ref<any>({ id: undefined })");
+        if (masterDetails != null)
+        {
+            sb.AppendLine("const detailRows = ref<any[][]>([])");
+            sb.AppendLine("let detailKeySeq = 0");
+            sb.AppendLine("const drawerVisible = ref(false)");
+            sb.AppendLine("const detailTitle = ref('')");
+            sb.AppendLine("const detailViewRows = ref<any[][]>([])");
+        }
         sb.AppendLine();
         sb.AppendLine("async function loadConfig() {");
         sb.AppendLine($"  config.value = await get{entityName}Config()");
@@ -1165,6 +1461,24 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("      }");
         sb.AppendLine("    }");
         sb.AppendLine("  }");
+        if (masterDetails != null)
+        {
+            // 从表字典选项一并预取（行编辑与详情抽屉共用）
+            sb.AppendLine("  const detailCodes: string[] = []");
+            sb.AppendLine("  for (const dc of config.value.details || []) {");
+            sb.AppendLine("    if (dc.dictCode) detailCodes.push(dc.dictCode)");
+            sb.AppendLine("    for (const f of dc.fields || []) if (f.control === 'dict' && f.dictCode) detailCodes.push(f.dictCode)");
+            sb.AppendLine("  }");
+            sb.AppendLine("  for (const code of detailCodes) {");
+            sb.AppendLine("    if (!dictOptions.value[code]) {");
+            sb.AppendLine("      try {");
+            sb.AppendLine("        dictOptions.value[code] = await request({ url: `/identity/dict/items/${code}`, method: 'get' })");
+            sb.AppendLine("      } catch {");
+            sb.AppendLine("        dictOptions.value[code] = []");
+            sb.AppendLine("      }");
+            sb.AppendLine("    }");
+            sb.AppendLine("  }");
+        }
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("async function loadData() {");
@@ -1196,14 +1510,38 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("async function openEdit(row: any) {");
-        sb.AppendLine($"  form.value = await get{entityName}(row.id)");
+        if (masterDetails != null)
+        {
+            sb.AppendLine($"  const res: any = await get{entityName}(row.id)");
+            sb.AppendLine("  form.value = res.master");
+            sb.AppendLine("  detailRows.value = (config.value.details || []).map((_: any, di: number) =>");
+            sb.AppendLine("    ((res as any)['details' + di] || []).map((r: any) => ({ __k: ++detailKeySeq, ...r })))");
+        }
+        else
+        {
+            sb.AppendLine($"  form.value = await get{entityName}(row.id)");
+        }
         sb.AppendLine("  dialogVisible.value = true");
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("async function onSave() {");
         sb.AppendLine("  saving.value = true");
         sb.AppendLine("  try {");
-        sb.AppendLine($"    await save{entityName}(form.value)");
+        if (masterDetails != null)
+        {
+            sb.AppendLine("    const payload: any = { ...form.value }");
+            sb.AppendLine("    for (let i = 0; i < (config.value.details || []).length; i++) {");
+            sb.AppendLine("      payload['details' + i] = (detailRows.value[i] || []).map((r: any) => {");
+            sb.AppendLine("        const { __k, ...rest } = r");
+            sb.AppendLine("        return rest");
+            sb.AppendLine("      })");
+            sb.AppendLine("    }");
+            sb.AppendLine($"    await save{entityName}(payload)");
+        }
+        else
+        {
+            sb.AppendLine($"    await save{entityName}(form.value)");
+        }
         sb.AppendLine("    message.success('保存成功')");
         sb.AppendLine("    dialogVisible.value = false");
         sb.AppendLine("    await loadData()");
@@ -1250,6 +1588,70 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             sb.AppendLine("    })");
             sb.AppendLine("    .catch(() => {})");
             sb.AppendLine("  return false; // 阻止 a-upload 自动上传，改走手工导入");
+            sb.AppendLine("}");
+        }
+        if (masterDetails != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("// ---------- 主从表：从表行编辑与详情抽屉 ----------");
+            sb.AppendLine("function detailCfg(i: number): any {");
+            sb.AppendLine("  return (config.value.details || [])[i] || {}");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailName(i: number): string {");
+            sb.AppendLine("  return detailCfg(i).displayName || `明细${i + 1}`");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailFieldOf(i: number, key: string): any {");
+            sb.AppendLine("  return (detailCfg(i).fields || []).find((f: any) => f.name === key)");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailColumns(i: number): any[] {");
+            sb.AppendLine("  const cfg = detailCfg(i)");
+            sb.AppendLine("  const cols = (cfg.fields || []).filter((f: any) => f.name !== cfg.foreignKey).map((f: any) => ({ title: f.label, dataIndex: f.name, key: f.name }))");
+            sb.AppendLine("  return [...cols, { title: '操作', key: '__op', width: 70 }]");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailViewColumns(di: number): any[] {");
+            sb.AppendLine("  const cfg = detailCfg(di)");
+            sb.AppendLine("  return (cfg.fields || []).filter((f: any) => f.name !== cfg.foreignKey).map((f: any) => ({ title: f.label, dataIndex: f.name, key: f.name }))");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailCtrlKind(i: number, key: string): string {");
+            sb.AppendLine("  const f = detailFieldOf(i, key)");
+            sb.AppendLine("  if (!f) return 'text'");
+            sb.AppendLine("  const cfg = detailCfg(i)");
+            sb.AppendLine("  if ((cfg.dataSource === 'dict' && cfg.dictCode && (key === cfg.dictCode || f.control === 'dict')) || (f.control === 'dict' && f.dictCode)) return 'dict'");
+            sb.AppendLine("  if (f.control === 'number' || ['int', 'long', 'decimal'].includes(f.dataType)) return 'number'");
+            sb.AppendLine("  if (f.control === 'date' || f.dataType === 'datetime') return 'date'");
+            sb.AppendLine("  if (f.control === 'textarea') return 'textarea'");
+            sb.AppendLine("  if (f.control === 'switch') return 'switch'");
+            sb.AppendLine("  return 'text'");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailKind(di: number, key: string): string {");
+            sb.AppendLine("  const f = detailFieldOf(di, key)");
+            sb.AppendLine("  if (!f) return 'plain'");
+            sb.AppendLine("  if (detailCtrlKind(di, key) === 'dict') return 'dict'");
+            sb.AppendLine("  if (f.dataType === 'bool') return 'bool'");
+            sb.AppendLine("  return 'plain'");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailDictCode(i: number, key: string): string {");
+            sb.AppendLine("  const f = detailFieldOf(i, key)");
+            sb.AppendLine("  if (f?.dictCode) return f.dictCode");
+            sb.AppendLine("  return detailCfg(i).dictCode || ''");
+            sb.AppendLine("}");
+            sb.AppendLine("function detailDefaults(f: any): any {");
+            sb.AppendLine("  if (['int', 'long', 'decimal'].includes(f.dataType)) return 0");
+            sb.AppendLine("  if (f.dataType === 'bool') return false");
+            sb.AppendLine("  return ''");
+            sb.AppendLine("}");
+            sb.AppendLine("function addDetailRow(i: number) {");
+            sb.AppendLine("  const cfg = detailCfg(i)");
+            sb.AppendLine("  const row: any = { __k: ++detailKeySeq }");
+            sb.AppendLine("  for (const f of cfg.fields || []) if (f.name !== cfg.foreignKey) row[f.name] = detailDefaults(f)");
+            sb.AppendLine("  if (!detailRows.value[i]) detailRows.value[i] = []");
+            sb.AppendLine("  detailRows.value[i].push(row)");
+            sb.AppendLine("}");
+            sb.AppendLine("async function openDetail(row: any) {");
+            sb.AppendLine($"  const res: any = await get{entityName}(row.id)");
+            sb.AppendLine("  detailTitle.value = (config.value.displayName || '') + '详情'");
+            sb.AppendLine("  detailViewRows.value = (config.value.details || []).map((_: any, di: number) => (res as any)['details' + di] || [])");
+            sb.AppendLine("  drawerVisible.value = true");
             sb.AppendLine("}");
         }
         sb.AppendLine();
