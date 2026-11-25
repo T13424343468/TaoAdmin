@@ -1,43 +1,21 @@
 ﻿<template>
-  <a-card title="审计日志">
-    <template #extra>
-      <a-space>
-        <template v-if="selectedCount > 0">
-          <span class="batch-count">已选 {{ selectedCount }} 项</span>
-          <a-button danger :loading="batchLoading" @click="onBatchDelete">批量删除</a-button>
-          <a @click="clearSelection">清空勾选</a>
-        </template>
-        <a-popconfirm title="立即按保留策略清理过期日志？" @confirm="onCleanup">
-          <a-button danger :loading="cleaning">清理过期日志</a-button>
-        </a-popconfirm>
-        <a-button :loading="exporting" @click="onExport">导出 Excel</a-button>
-        <a-button v-if="selectedCount === 0 && total > 0" @click="onSelectAll">选中全部 {{ total }} 条</a-button>
-      </a-space>
-    </template>
+  <div class="page-container">
+    <!-- 筛选区（全站统一 FilterBar：字段在左，查询/重置在右） -->
+    <FilterBar :values="filters" :fields="filterFields" :loading="loading" @search="reload" @reset="resetQuery" />
 
-    <a-form layout="inline" style="margin-bottom: 12px" @submit.prevent="reload">
-      <a-form-item label="类别">
-        <a-select v-model:value="query.category" style="width: 120px" allowClear placeholder="全部">
-          <a-select-option value="login">登录</a-select-option>
-          <a-select-option value="operation">操作</a-select-option>
-        </a-select>
-      </a-form-item>
-      <a-form-item label="账号">
-        <a-input v-model:value="query.userName" placeholder="账号" style="width: 140px" allowClear />
-      </a-form-item>
-      <a-form-item label="结果">
-        <a-select v-model:value="success" style="width: 110px" allowClear placeholder="全部">
-          <a-select-option :value="1">成功</a-select-option>
-          <a-select-option :value="0">失败</a-select-option>
-        </a-select>
-      </a-form-item>
-      <a-form-item label="时间区间">
-        <a-range-picker v-model:value="range" show-time value-format="YYYY-MM-DD HH:mm:ss" />
-      </a-form-item>
-      <a-form-item>
-        <a-button type="primary" @click="reload">查询</a-button>
-      </a-form-item>
-    </a-form>
+    <!-- 操作区（全站统一 table-operator：清理/导出在左，批量与选中全部在右） -->
+    <div class="table-operator">
+      <a-popconfirm title="立即按保留策略清理过期日志？" @confirm="onCleanup">
+        <a-button danger :loading="cleaning">清理过期日志</a-button>
+      </a-popconfirm>
+      <a-button style="margin-left: 12px" :loading="exporting" @click="onExport">导出 Excel</a-button>
+      <a-space v-if="selectedCount > 0" style="margin-left: 12px">
+        <span class="batch-count">已选 {{ selectedCount }} 项</span>
+        <a-button danger :loading="batchLoading" @click="onBatchDelete">批量删除</a-button>
+        <a @click="clearSelection">清空勾选</a>
+      </a-space>
+      <a-button v-else-if="total > 0" style="margin-left: 12px" @click="onSelectAll">选中全部 {{ total }} 条</a-button>
+    </div>
 
     <a-table
       :columns="columns"
@@ -60,12 +38,13 @@
         </template>
       </template>
     </a-table>
-  </a-card>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
 import { message, Modal } from 'ant-design-vue';
+import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { pageAfterDelete } from '@/utils/listPage';
 import { getAuditLogs, cleanupAuditLogs, batchDeleteAuditLogs, exportAuditLogs, type AuditLogItem } from '@/api/audit';
@@ -84,8 +63,36 @@ const rows = ref<AuditLogItem[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const cleaning = ref(false);
-const success = ref<number | undefined>();
-const range = ref<[string, string] | Dayjs[] | undefined>();
+
+// ============ 筛选区（统一 FilterBar 口径） ============
+
+const filters = reactive({
+  category: undefined as string | undefined,
+  userName: undefined as string | undefined,
+  success: undefined as number | undefined,
+  timeRange: undefined as [Dayjs, Dayjs] | undefined,
+});
+
+const filterFields: FilterField[] = [
+  {
+    key: 'category', label: '类别', type: 'select', primary: true,
+    options: [{ label: '登录', value: 'login' }, { label: '操作', value: 'operation' }],
+  },
+  { key: 'userName', label: '账号', type: 'input', primary: true, width: 140 },
+  {
+    key: 'success', label: '结果', type: 'select', primary: true, width: 110,
+    options: [{ label: '成功', value: 1 }, { label: '失败', value: 0 }],
+  },
+  { key: 'timeRange', label: '时间区间', type: 'dateRange', primary: true },
+];
+
+function resetQuery() {
+  filters.category = undefined;
+  filters.userName = undefined;
+  filters.success = undefined;
+  filters.timeRange = undefined;
+  reload();
+}
 
 // ============ 批量选择（跨页保留） ============
 
@@ -108,16 +115,16 @@ async function onSelectAll() {
 const query = reactive({
   pageIndex: 1,
   pageSize: 20,
-  category: undefined as string | undefined,
-  userName: undefined as string | undefined,
 });
 
 // 游标缓存：记录每一页返回的下一页游标，翻下一页时带上可恒定速度定位（亿级深翻页不衰减）
 const cursorMap = new Map<number, string>();
 
 function rangeParams() {
-  const r = range.value as [string, string] | undefined;
-  return r && r[0] && r[1] ? { begin: r[0], end: r[1] } : {};
+  const r = filters.timeRange;
+  return r && r[0] && r[1]
+    ? { begin: r[0].format('YYYY-MM-DD HH:mm:ss'), end: r[1].format('YYYY-MM-DD HH:mm:ss') }
+    : {};
 }
 
 async function load() {
@@ -127,7 +134,9 @@ async function load() {
     const prevCursor = cursorMap.get(query.pageIndex - 1);
     const page = await getAuditLogs({
       ...query,
-      success: success.value,
+      category: filters.category,
+      userName: filters.userName,
+      success: filters.success,
       ...rangeParams(),
       ...(prevCursor ? { cursor: prevCursor } : {}),
     });
@@ -193,9 +202,9 @@ async function onExport() {
   exporting.value = true;
   try {
     const blob = await exportAuditLogs({
-      category: query.category,
-      userName: query.userName,
-      success: success.value,
+      category: filters.category,
+      userName: filters.userName,
+      success: filters.success,
       ...rangeParams(),
     });
     const url = URL.createObjectURL(blob);

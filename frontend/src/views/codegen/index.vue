@@ -3,16 +3,12 @@
     <a-tabs v-model:active-key="activeTab">
       <!-- ============ 表设计 ============ -->
       <a-tab-pane key="designs" title="表设计">
+        <!-- 筛选区（全站统一 FilterBar：字段在左，查询/重置在右） -->
+        <FilterBar :values="designFilters" :fields="designFilterFields" :loading="designLoading" @search="loadDesigns()" @reset="resetDesignQuery" />
+
+        <!-- 操作区（全站统一 table-operator） -->
         <div class="table-operator">
-          <a-input
-            v-model:value="designQuery.keyword"
-            placeholder="搜索表名/中文名"
-            allow-clear
-            style="width: 220px"
-            @press-enter="loadDesigns()"
-          />
-          <a-button type="primary" style="margin-left: 8px" @click="loadDesigns()">查询</a-button>
-          <a-button v-permission="'sys:codegen:manage'" type="primary" style="margin-left: 12px" @click="openCreate">
+          <a-button v-permission="'sys:codegen:manage'" type="primary" @click="openCreate">
             <template #icon><PlusOutlined /></template>
             新建表设计
           </a-button>
@@ -293,12 +289,22 @@ import {
 import { message } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
 import { ref, reactive, onMounted } from 'vue';
+import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 
 // ============ 表设计列表 ============
 const activeTab = ref('designs');
 const designs = ref<CodegenDesign[]>([]);
 const designLoading = ref(false);
-const designQuery = reactive({ keyword: '' });
+const designFilters = reactive({ keyword: '' });
+const designFilterFields: FilterField[] = [
+  { key: 'keyword', label: '关键词', type: 'input', primary: true, placeholder: '搜索表名/中文名', width: 220 },
+];
+
+function resetDesignQuery() {
+  designFilters.keyword = '';
+  designPagination.current = 1;
+  loadDesigns();
+}
 const designPagination = reactive({ current: 1, pageSize: 10, total: 0, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` });
 
 const designColumns = [
@@ -316,7 +322,7 @@ async function loadDesigns() {
     const res = await getCodegenDesigns({
       pageIndex: designPagination.current,
       pageSize: designPagination.pageSize,
-      keyword: designQuery.keyword || undefined,
+      keyword: designFilters.keyword || undefined,
     });
     designs.value = res.items;
     designPagination.total = res.total;
