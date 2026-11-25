@@ -40,12 +40,21 @@
 
       <div class="spacer" />
 
-      <template v-if="selectedCount > 0">
+      <template v-if="viewMode === 'list' && selectedCount > 0">
         <span class="batch-count">已选 {{ selectedCount }} 项</span>
         <a-button danger :loading="batchLoading" @click="onBatchDelete">批量删除</a-button>
         <a @click="clearSelection">清空勾选</a>
       </template>
-      <a-button v-else-if="pagination.total > 0" @click="onSelectAll">选中全部 {{ pagination.total }} 个</a-button>
+      <a-button v-else-if="viewMode === 'list' && pagination.total > 0" @click="onSelectAll">选中全部 {{ pagination.total }} 个</a-button>
+
+      <template v-if="viewMode === 'recycle' && recycleSelectedCount > 0">
+        <span class="batch-count">已选 {{ recycleSelectedCount }} 项</span>
+        <a-button :loading="recycleBatchLoading" @click="onRecycleBatchRestore">批量恢复</a-button>
+        <a-button danger :loading="recycleBatchLoading" @click="onRecycleBatchPurge">批量彻底删除</a-button>
+        <a @click="clearRecycleSelection">清空勾选</a>
+      </template>
+      <a-button v-else-if="viewMode === 'recycle' && recyclePagination.total > 0" @click="onRecycleSelectAll">选中全部 {{ recyclePagination.total }} 个</a-button>
+      <a-button v-if="viewMode === 'recycle' && recyclePagination.total > 0" danger :loading="recycleBatchLoading" @click="onPurgeAllConfirm">一键清空</a-button>
 
       <a-button @click="addrOpen = true">
         <SettingOutlined /> 文件中心地址
@@ -112,6 +121,7 @@
       :scroll="{ x: 800, y: scrollY }"
       row-key="id"
       size="middle"
+      :row-selection="{ selectedRowKeys: recycleSelectedRowKeys, onChange: onRecycleSelectChange }"
       @change="onRecycleTableChange"
     >
       <template #bodyCell="{ column, record }">
@@ -170,6 +180,9 @@ import {
   listRecycleBin,
   restoreFile,
   purgeFile,
+  restoreRecycleBatch,
+  purgeRecycleBatch,
+  purgeAllRecycle,
   buildFileUrl,
   getTaoFilesBase,
   setTaoFilesBase,
@@ -226,6 +239,35 @@ const recyclePagination = reactive({
   showSizeChanger: true,
   showTotal: (t: number) => `共 ${t} 个文件`,
 });
+
+// ============ 回收站批量选择（跨页保留，与文件列表同口径） ============
+
+const recycleBatchLoading = ref(false);
+const {
+  selectedRowKeys: recycleSelectedRowKeys,
+  selectedCount: recycleSelectedCount,
+  onTableSelectChange: onRecycleSelectChange,
+  setTotal: setRecycleTotal,
+  selectAll: recycleSelectAll,
+  clearSelection: clearRecycleSelection,
+  getSelectedIds: getRecycleSelectedIds,
+} = useBatchSelection(async () => {
+  // 回收站单页上限 100 条，按总数循环取齐全部 ID
+  const ids: string[] = [];
+  const first = await listRecycleBin({ pageIndex: 1, pageSize: 100, keyword: keyword.value || undefined });
+  ids.push(...first.list.map((f) => f.id));
+  const pages = Math.ceil(first.total / 100);
+  for (let p = 2; p <= pages; p++) {
+    const next = await listRecycleBin({ pageIndex: p, pageSize: 100, keyword: keyword.value || undefined });
+    ids.push(...next.list.map((f) => f.id));
+  }
+  return ids;
+});
+
+async function onRecycleSelectAll() {
+  await recycleSelectAll();
+  message.info(`已按当前筛选条件选中全部 ${recycleSelectedCount.value} 个`);
+}
 const recycleColumns = [
   { title: '文件名', key: 'fileName', ellipsis: true },
   { title: '删除时间', key: 'deletedAt', width: 160 },
@@ -333,6 +375,7 @@ async function loadData(page = query.pageIndex): Promise<void> {
 function onSearch(): void {
   cursorMap.clear();
   clearSelection();
+  clearRecycleSelection();
   if (viewMode.value === 'recycle') void loadRecycle(1);
   else void loadData(1);
 }
@@ -407,6 +450,7 @@ async function loadRecycle(page = recycleQuery.pageIndex): Promise<void> {
     recycleFiles.value = data.list || [];
     recyclePagination.current = page;
     recyclePagination.total = data.total;
+    setRecycleTotal(data.total);
   } catch (e: any) {
     message.error(e.message || '加载失败');
   } finally {
@@ -432,6 +476,82 @@ async function onRestore(record: FileItem): Promise<void> {
 }
 
 /** 彻底删除：物理删记录并清理磁盘文件，不可恢复，二次确认 */
+// ============ 回收站批量操作 ============
+
+/** 批量恢复：走后端批量接口，返回成功条数 */
+function onRecycleBatchRestore(): void {
+  const ids = getRecycleSelectedIds();
+  if (!ids.length) return;
+  Modal.confirm({
+    title: '批量恢复',
+    content: `确定恢复选中的 ${ids.length} 个文件吗？恢复后回到文件列表。`,
+    okText: '恢复',
+    async onOk() {
+      recycleBatchLoading.value = true;
+      try {
+        const okCount = await restoreRecycleBatch(ids);
+        message.success(`恢复完成：成功 ${okCount} 个${okCount < ids.length ? `，${ids.length - okCount} 个已不在回收站（跳过）` : ''}`);
+        clearRecycleSelection();
+        await loadRecycle();
+      } catch (e: any) {
+        message.error(e.message || '批量恢复失败');
+      } finally {
+        recycleBatchLoading.value = false;
+      }
+    },
+  });
+}
+
+/** 批量彻底删除：物理删记录并清理磁盘文件，不可恢复，二次确认写明条数 */
+function onRecycleBatchPurge(): void {
+  const ids = getRecycleSelectedIds();
+  if (!ids.length) return;
+  Modal.confirm({
+    title: '批量彻底删除（不可恢复）',
+    content: `选中的 ${ids.length} 个文件的记录与磁盘文件将被永久删除，无法恢复。确定继续吗？`,
+    okText: '彻底删除',
+    okType: 'danger',
+    async onOk() {
+      recycleBatchLoading.value = true;
+      try {
+        const okCount = await purgeRecycleBatch(ids);
+        message.success(`彻底删除完成：成功 ${okCount} 个${okCount < ids.length ? `，${ids.length - okCount} 个已不在回收站（跳过）` : ''}`);
+        clearRecycleSelection();
+        await loadRecycle();
+      } catch (e: any) {
+        message.error(e.message || '批量删除失败');
+      } finally {
+        recycleBatchLoading.value = false;
+      }
+    },
+  });
+}
+
+/** 一键清空回收站：物理删除全部已删记录与磁盘文件，不可恢复，二次确认写明将删除的数量 */
+function onPurgeAllConfirm(): void {
+  const n = recyclePagination.total;
+  if (n <= 0) return;
+  Modal.confirm({
+    title: '清空回收站（不可恢复）',
+    content: `回收站中的全部 ${n} 个文件的记录与磁盘文件将被永久删除，无法恢复。确定清空吗？`,
+    okText: '清空',
+    okType: 'danger',
+    async onOk() {
+      recycleBatchLoading.value = true;
+      try {
+        const purged = await purgeAllRecycle();
+        message.success(`已清空回收站：共删除 ${purged} 个文件`);
+        clearRecycleSelection();
+        await loadRecycle(1);
+      } catch (e: any) {
+        message.error(e.message || '清空失败');
+      } finally {
+        recycleBatchLoading.value = false;
+      }
+    },
+  });
+}
+
 function onPurgeConfirm(record: FileItem): void {
   Modal.confirm({
     title: '彻底删除（不可恢复）',

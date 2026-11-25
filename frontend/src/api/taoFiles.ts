@@ -1,4 +1,4 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import { message } from 'ant-design-vue';
 
 /** 文件中心服务地址（存 localStorage，可在页面右上角修改） */
@@ -118,6 +118,23 @@ export async function restoreFile(id: string): Promise<void> {
 /** 彻底删除（物理删记录并清理磁盘文件，不可恢复；调用方须已做二次确认） */
 export async function purgeFile(id: string): Promise<void> {
   await fcRequest({ method: 'DELETE', url: `/api/files/${id}/purge` });
+}
+/** 批量恢复：返回成功条数（不在回收站中的记录自动跳过） */
+export async function restoreRecycleBatch(ids: string[]): Promise<number> {
+  const r = await fcRequest<{ okCount: number }>({ method: 'POST', url: '/api/files/recycle-bin/restore-batch', data: ids });
+  return r.okCount;
+}
+
+/** 批量彻底删除：返回成功条数（调用方须已做二次确认） */
+export async function purgeRecycleBatch(ids: string[]): Promise<number> {
+  const r = await fcRequest<{ okCount: number }>({ method: 'POST', url: '/api/files/recycle-bin/purge-batch', data: ids });
+  return r.okCount;
+}
+
+/** 一键清空回收站：返回实际清掉条数（调用方须已做二次确认） */
+export async function purgeAllRecycle(): Promise<number> {
+  const r = await fcRequest<{ purgedCount: number }>({ method: 'DELETE', url: '/api/files/recycle-bin' });
+  return r.purgedCount;
 }
 
 export async function pingTaoFiles(): Promise<string> {
