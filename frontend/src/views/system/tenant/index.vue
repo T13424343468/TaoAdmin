@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 操作区 -->
     <div class="table-operator">
       <a-button v-permission="'sys:tenant:manage'" type="primary" @click="openSave()">
@@ -14,6 +14,7 @@
     </div>
 
     <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="data"
       :columns="columns"
@@ -50,6 +51,8 @@
         </template>
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 新增/编辑弹窗 -->
     <a-modal
@@ -79,7 +82,6 @@
         </a-form-item>
       </a-form>
     </a-modal>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -88,6 +90,7 @@ import { message, Modal } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { getTenantList, saveTenant, deleteTenant, batchDeleteTenants, type TenantItem } from '@/api/tenant';
+import PageLayout from '@/components/PageLayout/index.vue';
 
 const loading = ref(false);
 const data = ref<TenantItem[]>([]);

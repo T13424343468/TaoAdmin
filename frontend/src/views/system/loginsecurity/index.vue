@@ -1,5 +1,6 @@
-﻿<template>
-  <a-card title="登录安全" style="max-width: 640px; margin: 0 auto">
+<template>
+  <div class="page-container">
+  <a-card title="登录安全" size="small" style="max-width: 640px; margin: 0 auto">
     <template #extra><span style="color: #999">保存即生效，无需重启</span></template>
     <a-form layout="vertical" :model="form">
       <a-form-item label="连续失败锁定次数（1~99 次）">
@@ -26,6 +27,7 @@
       </a-form-item>
     </a-form>
   </a-card>
+  </div>
 </template>
 
 <script setup lang="ts">

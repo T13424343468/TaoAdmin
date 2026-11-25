@@ -1,6 +1,6 @@
 <template>
   <div class="page-container" style="max-width: 860px">
-    <a-card title="通知渠道">
+    <a-card title="通知渠道" size="small">
       <a-form layout="vertical" :model="form">
         <a-divider orientation="left">SMTP 邮件</a-divider>
         <a-row :gutter="16">
@@ -37,7 +37,7 @@
       </a-form>
     </a-card>
 
-    <a-card title="告警规则" style="margin-top: 16px">
+    <a-card title="告警规则" size="small" style="margin-top: 16px">
       <template #extra>
         <a-button type="primary" size="small" @click="openRuleForm()">新增规则</a-button>
       </template>
@@ -69,7 +69,7 @@
       </a-table>
     </a-card>
 
-    <a-card title="发送记录" style="margin-top: 16px">
+    <a-card title="发送记录" size="small" style="margin-top: 16px">
       <a-table
         :data-source="logs"
         :loading="logsLoading"

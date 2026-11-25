@@ -23,6 +23,8 @@ public class CodegenDesignSaveRequest
     public List<CodegenFieldDesign> fields { get; set; } = new();
     /// <summary>备注</summary>
     public string? remark { get; set; }
+    /// <summary>主从关系配置（主表视角；null 表示单表设计）</summary>
+    public CodegenMasterDetailConfig? masterDetail { get; set; }
 }
 
 /// <summary>同步结果：执行了什么、跳过了什么、待确认的破坏性语句</summary>
@@ -91,11 +93,47 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         row.FieldsJson = JsonSerializer.Serialize(req.fields);
         row.Remark = req.remark;
         row.UpdatedAt = DateTime.Now;
+        await SaveMasterDetailAsync(row, req.masterDetail);
         if (row.Id != 0 && await db.Queryable<SysCodeGenTable>().AnyAsync(t => t.Id == row.Id))
             await db.Updateable(row).ExecuteCommandAsync();
         else
             await db.Insertable(row).ExecuteCommandAsync();
         return row.Id;
+    }
+
+    /// <summary>
+    /// 保存主从关系配置：主表存 IsMasterDetail + MasterDetailJson；校验从表设计存在、外键字段在从表字段清单中、从表未挂到其他主表。
+    /// masterDetail 为 null 时清空主从标记（退回单表设计）。
+    /// </summary>
+    private async Task SaveMasterDetailAsync(SysCodeGenTable masterRow, CodegenMasterDetailConfig? config)
+    {
+        if (config == null || config.details.Count == 0)
+        {
+            masterRow.IsMasterDetail = false;
+            masterRow.MasterDetailJson = null;
+            return;
+        }
+        var seenTables = new HashSet<long>();
+        foreach (var d in config.details)
+        {
+            if (d.detailTableId <= 0) throw new DomainException("主从配置缺少从表设计，请先在从表页签画好并保存");
+            if (string.IsNullOrWhiteSpace(d.foreignKey)) throw new DomainException($"从表关联缺少外键字段名");
+            if (!seenTables.Add(d.detailTableId)) throw new DomainException("同一条主从配置里从表重复");
+            var detail = await db.Queryable<SysCodeGenTable>().FirstAsync(t => t.Id == d.detailTableId && t.IsDeleted == false)
+                ?? throw new DomainException($"从表设计 {d.detailTableId} 不存在或已删除");
+            if (detail.Id == masterRow.Id) throw new DomainException("从表不能是主表自己");
+            var detailFields = detail.ParseFields();
+            if (!detailFields.Any(f => f.name.Equals(d.foreignKey.Trim(), StringComparison.OrdinalIgnoreCase)))
+                throw new DomainException($"从表 {detail.TableName} 里没有外键字段 {d.foreignKey}，请先在从表设计里加上");
+            // 外键字段自动补索引标记
+            var fk = detailFields.First(f => f.name.Equals(d.foreignKey.Trim(), StringComparison.OrdinalIgnoreCase));
+            fk.isIndex = true;
+            detail.FieldsJson = JsonSerializer.Serialize(detailFields);
+            detail.UpdatedAt = DateTime.Now;
+            await db.Updateable(detail).ExecuteCommandAsync();
+        }
+        masterRow.IsMasterDetail = true;
+        masterRow.MasterDetailJson = JsonSerializer.Serialize(config);
     }
 
     /// <summary>设计分页</summary>
@@ -168,6 +206,21 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         design.LastSyncAt = DateTime.Now;
         design.UpdatedAt = DateTime.Now;
         await db.Updateable(design).ExecuteCommandAsync();
+
+        // 主从表：主表同步后级联同步各从表（外键字段已在保存时补索引标记）
+        if (design.IsMasterDetail)
+        {
+            var md = design.ParseMasterDetail();
+            if (md != null)
+            {
+                foreach (var d in md.details)
+                {
+                    var detailResult = await SyncToDatabaseAsync(d.detailTableId);
+                    result.actions.AddRange(detailResult.actions.Select(a => $"[从表] {a}"));
+                    result.destructivePending.AddRange(detailResult.destructivePending.Select(s => $"-- 从表侧待确认：\n{s}"));
+                }
+            }
+        }
         return result;
     }
 

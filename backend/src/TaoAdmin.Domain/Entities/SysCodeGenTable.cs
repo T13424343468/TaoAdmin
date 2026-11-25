@@ -32,6 +32,28 @@ public class SysCodeGenTable : BaseEntity
     [SugarColumn(IsNullable = true, ColumnDescription = "最近同步时间")]
     public DateTime? LastSyncAt { get; set; }
 
+    /// <summary>主从关系配置（JSON：CodegenMasterDetailConfig；null 表示单表设计）</summary>
+    [SugarColumn(ColumnDataType = "TEXT", IsNullable = true, ColumnDescription = "主从关系配置JSON")]
+    public string? MasterDetailJson { get; set; }
+
+    /// <summary>是否主从表设计（主表视角）</summary>
+    [SugarColumn(IsNullable = true, ColumnDescription = "是否主从表主表")]
+    public bool IsMasterDetail { get; set; }
+
+    /// <summary>解析主从关系配置（损坏或为空时返回 null）</summary>
+    public CodegenMasterDetailConfig? ParseMasterDetail()
+    {
+        if (string.IsNullOrWhiteSpace(MasterDetailJson)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<CodegenMasterDetailConfig>(MasterDetailJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>解析字段设计（损坏或为空时返回空清单）</summary>
     public List<CodegenFieldDesign> ParseFields()
     {
@@ -80,4 +102,26 @@ public class CodegenFieldDesign
     public string queryType { get; set; } = "none";
     /// <summary>校验规则：none/required/required+max（逗号分隔）</summary>
     public string? rules { get; set; }
+}
+
+/// <summary>主从表关系配置（主表视角）：一层主从，主表挂多从表</summary>
+public class CodegenMasterDetailConfig
+{
+    /// <summary>从表配置清单</summary>
+    public List<CodegenDetailTableConfig> details { get; set; } = new();
+}
+
+/// <summary>单个从表配置</summary>
+public class CodegenDetailTableConfig
+{
+    /// <summary>从表设计（现场画新表或反向读已有表，保存时从表也各存一条 SysCodeGenTable）</summary>
+    public long detailTableId { get; set; }
+    /// <summary>外键字段名（从表上指向主表 Id 的字段，如 orderId；同步建库时自动建索引）</summary>
+    public string foreignKey { get; set; } = "";
+    /// <summary>从表是否生成独立全套功能（独立菜单/页面）；false 时仅作为主表详情的行编辑子表</summary>
+    public bool standalone { get; set; }
+    /// <summary>从表数据来源：free=自由录入，dict=从字典挑（dictCode 指定字典）</summary>
+    public string dataSource { get; set; } = "free";
+    /// <summary>字典编码（dataSource=dict 时必填）</summary>
+    public string? dictCode { get; set; }
 }

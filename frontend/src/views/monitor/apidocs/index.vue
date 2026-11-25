@@ -1,6 +1,6 @@
 <template>
-  <div class="apidocs">
-    <a-card :bordered="false">
+  <div class="page-container">
+    <a-card :bordered="false" size="small">
       <template #title>
         <span>接口文档</span>
       </template>

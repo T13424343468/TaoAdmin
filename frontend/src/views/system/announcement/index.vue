@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 搜索区 -->
     <FilterBar :values="query" :fields="filterFields" @search="loadData(1)" @reset="resetQuery" />
 
@@ -24,6 +24,7 @@
     </div>
 
     <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="data"
       :columns="columns"
@@ -63,6 +64,8 @@
         </template>
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 发布弹窗 -->
     <a-modal
@@ -92,7 +95,6 @@
       </div>
       <div class="detail-content">{{ detailRecord?.content || '（无正文）' }}</div>
     </a-modal>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -100,6 +102,7 @@ import { ref, reactive, onMounted } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { pageAfterDelete } from '@/utils/listPage';
 import {

@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="page-container">
+  <PageLayout>
     <!-- 搜索区 -->
     <FilterBar :values="query" :fields="filterFields" @search="loadData(1)" @reset="resetQuery" />
 
@@ -34,12 +34,13 @@
     </div>
 
     <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="data"
       :columns="columns"
       :loading="loading"
       :pagination="pagination"
-      :scroll="{ x: 730 }"
+      :scroll="{ x: 730, y: scrollY }"
       row-key="id"
       size="middle"
       :row-selection="{ selectedRowKeys, onChange: onTableSelectChange }"
@@ -71,6 +72,8 @@
         </template>
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 新增/编辑弹窗 -->
     <a-modal
@@ -190,7 +193,6 @@
         />
       </template>
     </a-modal>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -198,6 +200,7 @@ import { ref, reactive, onMounted } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import { PlusOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons-vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { pageAfterDelete } from '@/utils/listPage';
 import {

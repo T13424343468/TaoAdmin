@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 工具条：上传 / 搜索 / 服务地址 -->
     <div class="toolbar">
       <a-upload
@@ -52,6 +52,7 @@
       </a-button>
     </div>
 
+    <template #table="{ scrollY }">
     <!-- 文件表格 -->
     <a-table
       v-show="viewMode === 'list'"
@@ -59,6 +60,7 @@
       :columns="columns"
       :loading="loading"
       :pagination="pagination"
+      :scroll="{ x: 900, y: scrollY }"
       row-key="id"
       size="middle"
       :row-selection="{ selectedRowKeys, onChange: onTableSelectChange }"
@@ -107,6 +109,7 @@
       :columns="recycleColumns"
       :loading="recycleLoading"
       :pagination="recyclePagination"
+      :scroll="{ x: 800, y: scrollY }"
       row-key="id"
       size="middle"
       @change="onRecycleTableChange"
@@ -128,6 +131,8 @@
         <a-empty description="回收站是空的" />
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 图片预览 -->
     <a-image
@@ -147,11 +152,11 @@
       <a-button style="margin-top: 8px" :loading="pinging" @click="onPing">测试连接</a-button>
       <span v-if="pingResult" style="margin-left: 8px">{{ pingResult }}</span>
     </a-modal>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { PlusOutlined, SettingOutlined } from '@ant-design/icons-vue';
 import { message, Modal } from 'ant-design-vue';
 import type { TableProps } from 'ant-design-vue';

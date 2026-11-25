@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <div class="table-operator">
       <a-button type="primary" :loading="loading" @click="loadData">
         <template #icon><ReloadOutlined /></template>
@@ -12,7 +12,8 @@
         <a @click="clearSelection">清空勾选</a>
       </a-space>
     </div>
-
+    <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="data"
       :columns="columns"
@@ -45,11 +46,13 @@
         </template>
       </template>
     </a-table>
-  </div>
+    </template>
+  </PageLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { message, Modal } from 'ant-design-vue';
 import { ReloadOutlined } from '@ant-design/icons-vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';

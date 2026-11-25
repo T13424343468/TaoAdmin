@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 操作区：消息队列演示 -->
     <div class="table-operator">
       <a-space>
@@ -24,6 +24,7 @@
     </div>
 
     <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="data"
       :columns="columns"
@@ -52,6 +53,8 @@
         </template>
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 发布演示消息弹窗 -->
     <a-modal v-model:open="publishVisible" title="发布演示消息" :confirm-loading="publishing" @ok="onPublish">
@@ -74,11 +77,11 @@
       </div>
       <div class="detail-content">{{ detailRecord?.content || '（无内容）' }}</div>
     </a-modal>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { message, Modal } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';

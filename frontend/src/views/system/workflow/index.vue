@@ -1,13 +1,24 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <a-tabs v-model:activeKey="activeTab" @change="onTabChange">
       <!-- 页签一：流程定义 -->
-      <a-tab-pane key="definitions" tab="流程定义">
+      <a-tab-pane key="definitions" tab="流程定义" />
+
+      <!-- 页签二：流程实例 -->
+      <a-tab-pane key="instances" tab="流程实例" />
+
+      <!-- 页签三：我的待办 -->
+      <a-tab-pane key="tasks" tab="我的待办" />
+    </a-tabs>
+
+    <template #table="{ scrollY }">
         <a-table
+          v-show="activeTab === 'definitions'"
           :data-source="definitions"
           :columns="defColumns"
           :loading="loading"
           :pagination="false"
+          :scroll="{ x: 900, y: scrollY }"
           row-key="id"
           size="middle"
         >
@@ -22,15 +33,14 @@
             </template>
           </template>
         </a-table>
-      </a-tab-pane>
 
-      <!-- 页签二：流程实例 -->
-      <a-tab-pane key="instances" tab="流程实例">
         <a-table
+          v-show="activeTab === 'instances'"
           :data-source="instances"
           :columns="instanceColumns"
           :loading="loading"
           :pagination="instancePagination"
+          :scroll="{ x: 900, y: scrollY }"
           row-key="id"
           size="middle"
           @change="onInstanceTableChange"
@@ -46,15 +56,14 @@
             </template>
           </template>
         </a-table>
-      </a-tab-pane>
 
-      <!-- 页签三：我的待办 -->
-      <a-tab-pane key="tasks" tab="我的待办">
         <a-table
+          v-show="activeTab === 'tasks'"
           :data-source="tasks"
           :columns="taskColumns"
           :loading="loading"
           :pagination="false"
+          :scroll="{ x: 800, y: scrollY }"
           row-key="id"
           size="middle"
         >
@@ -67,8 +76,7 @@
             </template>
           </template>
         </a-table>
-      </a-tab-pane>
-    </a-tabs>
+    </template>
 
     <!-- 发起审批弹窗 -->
     <a-modal v-model:open="submitVisible" title="发起审批" :confirm-loading="submitting" @ok="onSubmit">
@@ -125,7 +133,7 @@
       </div>
       <a-textarea v-model:value="approveForm.comment" :rows="3" :maxlength="200" placeholder="审批意见（选填）" />
     </a-modal>
-  </div>
+  </PageLayout>
 </template>
 
 <script setup lang="ts">
@@ -142,6 +150,7 @@ import {
   type WorkflowInstance,
   type WorkflowTask,
 } from '@/api/workflow';
+import PageLayout from '@/components/PageLayout/index.vue';
 
 const activeTab = ref('definitions');
 const loading = ref(false);

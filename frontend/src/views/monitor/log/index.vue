@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 筛选区 -->
     <FilterBar :values="filters" :fields="filterFields" :loading="loading" @search="loadData(1)" @reset="resetQuery">
       <template #extra>
@@ -9,7 +9,8 @@
       </template>
     </FilterBar>
 
-    <!-- 日志表格（分页模式；数据量大时后端按 pageSize 截断） -->
+    <!-- 日志表格（分页模式；数据量大时后端按 pageSize 截断） -->    <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="logs"
       :columns="columns"
@@ -17,7 +18,7 @@
       :pagination="pagination"
       row-key="id"
       size="middle"
-      :scroll="{ x: 1200 }"
+      :scroll="{ x: 1200, y: scrollY }"
       :custom-row="customRow"
       @change="onTableChange"
     >
@@ -42,6 +43,8 @@
         <a-empty description="暂无匹配日志" />
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 日志详情抽屉（含堆栈） -->
     <a-drawer v-model:open="detailVisible" title="日志详情" width="640">
@@ -69,11 +72,11 @@
         <pre class="log-pre exception">{{ detail.exception }}</pre>
       </div>
     </a-drawer>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import dayjs, { type Dayjs } from 'dayjs';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 import { getLogs, getServices, type LogItem, type ServiceItem } from '@/api/monitor';

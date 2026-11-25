@@ -1,5 +1,5 @@
 <template>
-  <div class="page-container">
+  <PageLayout>
     <a-tabs v-model:active-key="activeTab">
       <!-- ============ 表设计 ============ -->
       <a-tab-pane key="designs" title="表设计">
@@ -14,13 +14,23 @@
           </a-button>
         </div>
 
+
+      </a-tab-pane>
+
+      <!-- ============ 生成记录 ============ -->
+      <a-tab-pane key="records" title="生成记录" />
+    </a-tabs>
+
+    <template #table="{ scrollY }">
         <a-table
+          v-show="activeTab === 'designs'"
           :data-source="designs"
           :columns="designColumns"
           :loading="designLoading"
           row-key="id"
           size="middle"
           :pagination="designPagination"
+          :scroll="{ x: 900, y: scrollY }"
           @change="onDesignTableChange"
         >
           <template #bodyCell="{ column, record }">
@@ -62,17 +72,16 @@
             </template>
           </template>
         </a-table>
-      </a-tab-pane>
 
-      <!-- ============ 生成记录 ============ -->
-      <a-tab-pane key="records" title="生成记录">
         <a-table
+          v-show="activeTab === 'records'"
           :data-source="records"
           :columns="recordColumns"
           :loading="recordLoading"
           row-key="id"
           size="middle"
           :pagination="recordPagination"
+          :scroll="{ x: 800, y: scrollY }"
           @change="onRecordTableChange"
         >
           <template #bodyCell="{ column, record }">
@@ -87,8 +96,7 @@
             </template>
           </template>
         </a-table>
-      </a-tab-pane>
-    </a-tabs>
+    </template>
 
     <!-- ============ 表设计编辑弹窗 ============ -->
     <a-modal
@@ -267,7 +275,7 @@
         </a-collapse-panel>
       </a-collapse>
     </a-modal>
-  </div>
+  </PageLayout>
 </template>
 
 <script setup lang="ts">
@@ -290,6 +298,7 @@ import { message } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
 import { ref, reactive, onMounted } from 'vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 
 // ============ 表设计列表 ============
 const activeTab = ref('designs');

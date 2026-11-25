@@ -1,7 +1,7 @@
 <template>
-  <div class="region-page">
+  <PageLayout>
     <!-- 数据版本与更新（老板令：页面显示当前数据版本、抓取时间、条数；更新后台执行+进度可见） -->
-    <a-card :bordered="false" style="margin-bottom: 12px">
+    <a-card :bordered="false" size="small" style="margin-bottom: 12px">
       <template #title>数据版本</template>
       <template #extra>
         <a-space>
@@ -57,17 +57,8 @@
       </div>
     </a-card>
 
-    <a-card :bordered="false">
-      <template #title>行政区划（省 / 市 / 区县 / 街道）</template>
-      <template #extra>
-        <a-input-search
-          v-model:value="keyword"
-          placeholder="搜索名称或路径，如：朝阳 / 东华门街道"
-          style="width: 320px"
-          allow-clear
-          @search="onSearch"
-        />
-      </template>
+    <!-- 搜索区（全站统一 FilterBar） -->
+    <FilterBar :values="regionFilters" :fields="regionFilterFields" :loading="loading" @search="onSearch" @reset="resetRegionQuery" />
 
       <a-alert
         v-if="searched"
@@ -79,11 +70,13 @@
         @close="clearSearch"
       />
 
+    <template #table="{ scrollY }">
       <a-table
         :columns="columns"
         :data-source="viewData"
         :loading="loading"
         :pagination="false"
+        :scroll="{ x: 700, y: scrollY }"
         row-key="code"
         size="middle"
         @expand="onExpand"
@@ -95,8 +88,8 @@
           </template>
         </template>
       </a-table>
-    </a-card>
-  </div>
+    </template>
+  </PageLayout>
 </template>
 
 <script setup lang="ts">
@@ -106,8 +99,10 @@
  * 数据版本展示 + 一键更新（后台执行不卡屏，进度实时轮询，刷新页面进度仍在）；
  * 不做逐条新增/编辑/删除（对齐老板口径：除更新外只读）。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { Modal, message } from 'ant-design-vue';
+import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import {
   getRegionChildren,
   getRegionStatus,
@@ -120,7 +115,11 @@ import {
   type RegionUpdateProgress,
 } from '@/api/region';
 
-const keyword = ref('');
+const regionFilters = reactive<{ keyword: string }>({ keyword: '' });
+const keyword = computed({
+  get: () => regionFilters.keyword,
+  set: (v: string) => { regionFilters.keyword = v; },
+});
 const searched = ref(false);
 const searchedKeyword = ref('');
 const searchResults = ref<RegionItem[]>([]);
@@ -184,6 +183,15 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+const regionFilterFields: FilterField[] = [
+  { key: 'keyword', label: '关键词', type: 'input', primary: true, placeholder: '名称或路径，如：朝阳 / 东华门街道' },
+];
+
+function resetRegionQuery(): void {
+  regionFilters.keyword = '';
+  onSearch();
+}
 
 async function onSearch(): Promise<void> {
   const kw = keyword.value.trim();

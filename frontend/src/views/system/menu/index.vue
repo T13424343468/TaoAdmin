@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 操作区 -->
     <div class="table-operator">
       <a-button v-permission="'sys:menu:add'" type="primary" @click="openForm(null)">
@@ -12,6 +12,7 @@
     </div>
 
     <!-- 树形表格：菜单 / 按钮 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="menuTree"
       :columns="columns"
@@ -62,6 +63,8 @@
         </template>
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 新增/编辑弹窗 -->
     <a-modal
@@ -140,7 +143,6 @@
         </a-form-item>
       </a-form>
     </a-modal>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -148,6 +150,7 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { message } from 'ant-design-vue';
 import { PlusOutlined, AppstoreOutlined } from '@ant-design/icons-vue';
 import IconPicker from '@/components/IconPicker/index.vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { resolveMenuIcon } from '@/utils/menuIcons';
 import { getMenuTree, saveMenu, deleteMenu, type MenuRecord } from '@/api/system';
 

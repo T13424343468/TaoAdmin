@@ -1,1 +1,0 @@
-export{i as getCodegenDesign}from"./codegen-qfs0T077.js";

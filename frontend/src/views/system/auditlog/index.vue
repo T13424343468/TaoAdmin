@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 筛选区（全站统一 FilterBar：字段在左，查询/重置在右） -->
     <FilterBar :values="filters" :fields="filterFields" :loading="loading" @search="reload" @reset="resetQuery" />
 
@@ -17,6 +17,7 @@
       <a-button v-else-if="total > 0" style="margin-left: 12px" @click="onSelectAll">选中全部 {{ total }} 条</a-button>
     </div>
 
+    <template #table="{ scrollY }">
     <a-table
       :columns="columns"
       :data-source="rows"
@@ -38,11 +39,13 @@
         </template>
       </template>
     </a-table>
-  </div>
+    </template>
+  </PageLayout>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { message, Modal } from 'ant-design-vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';

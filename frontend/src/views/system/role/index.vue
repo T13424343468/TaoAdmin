@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page-container">
+<template>
+  <PageLayout>
     <!-- 操作区 -->
     <div class="table-operator">
       <a-button v-permission="'sys:role:add'" type="primary" @click="openForm()">
@@ -17,7 +17,8 @@
         @click="onSelectAll"
       >选中全部 {{ pagination.total }} 条</a-button>
     </div>
-
+    <!-- 表格 -->
+    <template #table="{ scrollY }">
     <a-table
       :data-source="data"
       :columns="columns"
@@ -49,6 +50,8 @@
         </template>
       </template>
     </a-table>
+    </template>
+  </PageLayout>
 
     <!-- 新增/编辑弹窗 -->
     <a-modal
@@ -130,11 +133,11 @@
         <a-button style="margin-left: 8px" @click="permDrawerVisible = false">取消</a-button>
       </template>
     </a-drawer>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
+import PageLayout from '@/components/PageLayout/index.vue';
 import { message, Modal } from 'ant-design-vue';
 import { PlusOutlined } from '@ant-design/icons-vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
