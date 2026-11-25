@@ -30,6 +30,29 @@ export interface CodegenDesign {
   remark?: string;
   lastSyncAt?: string;
   createdAt: string;
+  /** 是否主从表设计（主表视角） */
+  isMasterDetail?: boolean;
+  /** 主从关系配置 JSON（CodegenMasterDetailConfig） */
+  masterDetailJson?: string;
+}
+
+/** 单个从表配置 */
+export interface CodegenDetailTableConfig {
+  /** 从表设计 Id */
+  detailTableId: string;
+  /** 外键字段名（从表上指向主表 Id 的字段） */
+  foreignKey: string;
+  /** 从表是否生成独立全套功能（独立菜单/页面） */
+  standalone: boolean;
+  /** 从表数据来源：free=自由录入，dict=从字典挑 */
+  dataSource: 'free' | 'dict';
+  /** 字典编码（dataSource=dict 时必填） */
+  dictCode?: string;
+}
+
+/** 主从关系配置（主表视角）：一层主从，主表挂多从表 */
+export interface CodegenMasterDetailConfig {
+  details: CodegenDetailTableConfig[];
 }
 
 /** 表设计保存请求 */
@@ -39,6 +62,8 @@ export interface CodegenDesignSave {
   displayName: string;
   fields: CodegenFieldDesign[];
   remark?: string;
+  /** 主从关系配置（主表视角；不传表示单表设计） */
+  masterDetail?: CodegenMasterDetailConfig;
 }
 
 /** 同步建库结果 */

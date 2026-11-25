@@ -212,8 +212,9 @@ builder.Services.AddControllers(options =>
 })
     .AddJsonOptions(o =>
     {
-        // 长整型（雪花ID）序列化为字符串，避免前端精度丢失
-        o.JsonSerializerOptions.NumberHandling = JsonNumberHandling.WriteAsString;
+        // 长整型（雪花ID）序列化为字符串，避免前端精度丢失；同时保留字符串数字读取（前端 id 以字符串回传）
+        o.JsonSerializerOptions.NumberHandling =
+            JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString;
     });
 
 var app = builder.Build();

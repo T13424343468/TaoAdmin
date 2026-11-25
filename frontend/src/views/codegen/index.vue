@@ -40,6 +40,10 @@
             <template v-else-if="column.key === 'fieldCount'">
               {{ parseFieldCount(record.fieldsJson) }}
             </template>
+            <template v-else-if="column.key === 'mdType'">
+              <a-tag v-if="record.isMasterDetail" color="purple">主从</a-tag>
+              <a-tag v-else>单表</a-tag>
+            </template>
             <template v-else-if="column.key === 'lastSyncAt'">
               <a-tag v-if="record.lastSyncAt" color="green">已同步</a-tag>
               <a-tag v-else color="orange">未同步</a-tag>
@@ -216,6 +220,137 @@
           </a-table>
           <a-button type="dashed" block style="margin-top: 8px" @click="addField">+ 添加字段</a-button>
         </a-form-item>
+
+        <!-- 主从关系配置（可选）：一层主从，主表挂多从表 -->
+        <a-divider style="margin: 4px 0 12px">主从关系（可选）</a-divider>
+        <a-form-item>
+          <a-checkbox v-model:checked="mdEnabled">作为主表挂从表（一层主从；从表需先保存为表设计，可现场快捷新建）</a-checkbox>
+        </a-form-item>
+        <template v-if="mdEnabled">
+          <a-table
+            :data-source="editForm.masterDetails"
+            :columns="mdColumns"
+            :pagination="false"
+            row-key="_key"
+            size="small"
+            :scroll="{ x: 760 }"
+          >
+            <template #bodyCell="{ column, record, index }">
+              <template v-if="column.key === 'detailTableId'">
+                <a-select
+                  v-model:value="record.detailTableId"
+                  placeholder="选择从表设计"
+                  style="width: 100%"
+                  :options="detailOptions(record)"
+                  :field-names="{ label: 'label', value: 'value' }"
+                  show-search
+                  option-filter-prop="label"
+                />
+              </template>
+              <template v-else-if="column.key === 'foreignKey'">
+                <a-select
+                  v-if="detailFieldOptions(record).length"
+                  v-model:value="record.foreignKey"
+                  placeholder="外键字段"
+                  style="width: 100%"
+                  :options="detailFieldOptions(record)"
+                />
+                <a-input v-else v-model:value="record.foreignKey" placeholder="如 orderId" />
+              </template>
+              <template v-else-if="column.key === 'standalone'">
+                <a-checkbox v-model:checked="record.standalone" />
+              </template>
+              <template v-else-if="column.key === 'dataSource'">
+                <a-select v-model:value="record.dataSource" style="width: 100%">
+                  <a-select-option value="free">自由录入</a-select-option>
+                  <a-select-option value="dict">从字典挑</a-select-option>
+                </a-select>
+              </template>
+              <template v-else-if="column.key === 'dictCode'">
+                <a-input
+                  v-if="record.dataSource === 'dict'"
+                  v-model:value="record.dictCode"
+                  placeholder="字典编码"
+                  size="small"
+                />
+                <span v-else>-</span>
+              </template>
+              <template v-else-if="column.key === 'mdAction'">
+                <a class="danger-link" @click="removeMdDetail(index)">移除</a>
+              </template>
+            </template>
+          </a-table>
+          <a-space style="margin-top: 8px; display: flex">
+            <a-button type="dashed" @click="addMdDetail">+ 挂从表</a-button>
+            <a-button type="dashed" @click="openQuickCreate">新建从表设计</a-button>
+          </a-space>
+        </template>
+      </a-form>
+    </a-modal>
+
+    <!-- ============ 从表快捷创建弹窗 ============ -->
+    <a-modal
+      v-model:open="qcVisible"
+      title="新建从表设计"
+      width="720px"
+      :confirm-loading="qcSaving"
+      ok-text="保存从表设计"
+      @ok="onQuickCreate"
+    >
+      <a-form layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="8">
+            <a-form-item label="表名（英文下划线风格）" required>
+              <a-input v-model:value="qcForm.tableName" placeholder="如 biz_contract_item" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="中文名（业务名）" required>
+              <a-input v-model:value="qcForm.displayName" placeholder="如 合同明细" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="外键字段名（指向主表 Id）" required>
+              <a-input v-model:value="qcForm.foreignKey" placeholder="如 contractId" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item label="业务字段（外键字段自动生成，可后续在设计器里继续完善）">
+          <a-table
+            :data-source="qcForm.fields"
+            :columns="qcColumns"
+            :pagination="false"
+            row-key="_key"
+            size="small"
+          >
+            <template #bodyCell="{ column, record, index }">
+              <template v-if="column.key === 'name'">
+                <a-input v-model:value="record.name" placeholder="英文" size="small" />
+              </template>
+              <template v-else-if="column.key === 'label'">
+                <a-input v-model:value="record.label" placeholder="中文" size="small" />
+              </template>
+              <template v-else-if="column.key === 'dataType'">
+                <a-select v-model:value="record.dataType" style="width: 110px" size="small">
+                  <a-select-option value="string">string</a-select-option>
+                  <a-select-option value="int">int</a-select-option>
+                  <a-select-option value="long">long</a-select-option>
+                  <a-select-option value="decimal">decimal</a-select-option>
+                  <a-select-option value="datetime">datetime</a-select-option>
+                  <a-select-option value="bool">bool</a-select-option>
+                  <a-select-option value="text">text</a-select-option>
+                </a-select>
+              </template>
+              <template v-else-if="column.key === 'nullable'">
+                <a-checkbox v-model:checked="record.nullable" />
+              </template>
+              <template v-else-if="column.key === 'qcAction'">
+                <a class="danger-link" @click="qcForm.fields.splice(index, 1)">移除</a>
+              </template>
+            </template>
+          </a-table>
+          <a-button type="dashed" block style="margin-top: 8px" @click="qcForm.fields.push(newField())">+ 添加字段</a-button>
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -291,6 +426,7 @@ import {
   getCodegenRecord,
   type CodegenDesign,
   type CodegenFieldDesign,
+  type CodegenDetailTableConfig,
   type CodegenSyncResult,
   type CodegenGenerateResult,
   type CodegenRecord,
@@ -300,6 +436,13 @@ import { PlusOutlined } from '@ant-design/icons-vue';
 import { ref, reactive, onMounted } from 'vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 import PageLayout from '@/components/PageLayout/index.vue';
+
+// 全量设计清单（主从配置里选从表用，不受列表分页影响）
+const allDesigns = ref<CodegenDesign[]>([]);
+async function loadAllDesigns() {
+  const res = await getCodegenDesigns({ pageIndex: 1, pageSize: 500 });
+  allDesigns.value = res.items;
+}
 
 // ============ 表设计列表 ============
 const activeTab = ref('designs');
@@ -321,6 +464,7 @@ const designColumns = [
   { title: '表名', dataIndex: 'tableName', key: 'tableName' },
   { title: '中文名', dataIndex: 'displayName', key: 'displayName' },
   { title: '字段数', key: 'fieldCount', width: 90 },
+  { title: '类型', key: 'mdType', width: 80 },
   { title: '同步状态', key: 'lastSyncAt', width: 110 },
   { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true },
   { title: '操作', key: 'action', width: 240 },
@@ -359,11 +503,23 @@ function parseFieldCount(fieldsJson?: string): number {
 // ============ 表设计编辑 ============
 const editVisible = ref(false);
 const saving = ref(false);
-const editForm = reactive<{ id?: string; tableName: string; displayName: string; remark?: string; fields: CodegenFieldDesign[] }>({
+interface MdDetailRow extends CodegenDetailTableConfig {
+  _key: number;
+}
+const editForm = reactive<{
+  id?: string;
+  tableName: string;
+  displayName: string;
+  remark?: string;
+  fields: CodegenFieldDesign[];
+  masterDetails: MdDetailRow[];
+}>({
   tableName: '',
   displayName: '',
   fields: [],
+  masterDetails: [],
 });
+const mdEnabled = ref(false);
 
 let fieldKeySeq = 0;
 function newField(): CodegenFieldDesign {
@@ -412,6 +568,8 @@ function openCreate() {
   editForm.displayName = '';
   editForm.remark = undefined;
   editForm.fields = [newField()];
+  mdEnabled.value = false;
+  editForm.masterDetails = [];
   editVisible.value = true;
 }
 
@@ -424,7 +582,20 @@ async function openEdit(record: CodegenDesign) {
   fieldKeySeq = 0;
   editForm.fields = parseFieldCount(detail.fieldsJson) > 0 ? JSON.parse(detail.fieldsJson!) : [];
   editForm.fields.forEach((f: any) => (f._key = ++fieldKeySeq));
+  // 主从配置回填
+  const md = detail.masterDetailJson ? safeParseMd(detail.masterDetailJson) : null;
+  mdEnabled.value = !!(md && md.details.length);
+  editForm.masterDetails = (md?.details || []).map((d) => ({ ...d, _key: ++fieldKeySeq }));
+  await loadAllDesigns();
   editVisible.value = true;
+}
+
+function safeParseMd(json: string): { details: CodegenDetailTableConfig[] } | null {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
 async function onSaveDesign() {
@@ -440,6 +611,29 @@ async function onSaveDesign() {
     message.warning('请至少添加一个字段');
     return;
   }
+  // 主从配置校验
+  let masterDetail: CodegenDetailTableConfig[] | undefined;
+  if (mdEnabled.value && editForm.masterDetails.length) {
+    for (const d of editForm.masterDetails) {
+      if (!d.detailTableId) {
+        message.warning('主从配置里还有未选择从表设计的行');
+        return;
+      }
+      if (!d.foreignKey.trim()) {
+        message.warning('主从配置里还有未填写外键字段的行');
+        return;
+      }
+      if (d.dataSource === 'dict' && !d.dictCode?.trim()) {
+        message.warning('数据来源为「从字典挑」的从表需填写字典编码');
+        return;
+      }
+    }
+    masterDetail = editForm.masterDetails.map(({ _key, ...d }) => ({
+      ...d,
+      foreignKey: d.foreignKey.trim(),
+      dictCode: d.dataSource === 'dict' ? d.dictCode?.trim() : undefined,
+    }));
+  }
   saving.value = true;
   try {
     await saveCodegenDesign({
@@ -448,12 +642,135 @@ async function onSaveDesign() {
       displayName: editForm.displayName.trim(),
       remark: editForm.remark,
       fields: editForm.fields.map(({ _key, ...f }: any) => f as CodegenFieldDesign),
+      masterDetail: masterDetail?.length ? { details: masterDetail } : undefined,
     });
     message.success('保存成功');
     editVisible.value = false;
     await loadDesigns();
   } finally {
     saving.value = false;
+  }
+}
+
+// ============ 主从关系配置 ============
+const mdColumns = [
+  { title: '从表设计', key: 'detailTableId', width: 200 },
+  { title: '外键字段', key: 'foreignKey', width: 150 },
+  { title: '独立功能', key: 'standalone', width: 80 },
+  { title: '数据来源', key: 'dataSource', width: 110 },
+  { title: '字典编码', key: 'dictCode', width: 120 },
+  { title: '操作', key: 'mdAction', width: 60 },
+];
+
+function addMdDetail() {
+  editForm.masterDetails.push({ detailTableId: '', foreignKey: '', standalone: false, dataSource: 'free', _key: ++fieldKeySeq });
+}
+
+function removeMdDetail(index: number) {
+  editForm.masterDetails.splice(index, 1);
+}
+
+/** 可选从表：排除主表自己与已挂从表 */
+function detailOptions(current: MdDetailRow) {
+  return allDesigns.value
+    .filter((d) => d.id !== editForm.id && !editForm.masterDetails.some((x) => x._key !== current._key && x.detailTableId === d.id))
+    .map((d) => ({ label: `${d.displayName}（${d.tableName}）`, value: d.id }));
+}
+
+/** 选中从表后的外键字段候选（来自从表设计字段清单） */
+function detailFieldOptions(current: MdDetailRow) {
+  if (!current.detailTableId) return [];
+  const design = allDesigns.value.find((d) => d.id === current.detailTableId);
+  if (!design?.fieldsJson) return [];
+  try {
+    return (JSON.parse(design.fieldsJson) as any[]).map((f) => ({ label: `${f.label || f.name}（${f.name}）`, value: f.name }));
+  } catch {
+    return [];
+  }
+}
+
+// ============ 从表快捷创建 ============
+const qcVisible = ref(false);
+const qcSaving = ref(false);
+const qcForm = reactive<{ tableName: string; displayName: string; foreignKey: string; fields: CodegenFieldDesign[] }>({
+  tableName: '',
+  displayName: '',
+  foreignKey: '',
+  fields: [],
+});
+const qcColumns = [
+  { title: '字段名', key: 'name', width: 160 },
+  { title: '显示名', key: 'label', width: 150 },
+  { title: '类型', key: 'dataType', width: 130 },
+  { title: '可空', key: 'nullable', width: 70 },
+  { title: '操作', key: 'qcAction', width: 60 },
+];
+let qcTargetKey: number | null = null;
+
+function openQuickCreate() {
+  qcForm.tableName = '';
+  qcForm.displayName = '';
+  qcForm.foreignKey = '';
+  qcForm.fields = [newField()];
+  // 目标行：最后一条配置行；没有则先补一条
+  if (editForm.masterDetails.length) {
+    qcTargetKey = editForm.masterDetails[editForm.masterDetails.length - 1]._key;
+  } else {
+    addMdDetail();
+    qcTargetKey = editForm.masterDetails[0]._key;
+  }
+  qcVisible.value = true;
+}
+
+async function onQuickCreate() {
+  if (!qcForm.tableName.trim()) {
+    message.warning('请填写从表表名');
+    return;
+  }
+  if (!qcForm.displayName.trim()) {
+    message.warning('请填写从表中文名');
+    return;
+  }
+  if (!qcForm.foreignKey.trim()) {
+    message.warning('请填写外键字段名（从表上指向主表 Id 的字段）');
+    return;
+  }
+  qcSaving.value = true;
+  try {
+    // 外键字段自动生成：long 非空 + 索引（同步建库时也会自动补索引标记）
+    const fkField: CodegenFieldDesign = {
+      name: qcForm.foreignKey.trim(),
+      label: '主表ID',
+      dataType: 'long',
+      nullable: false,
+      isPrimary: false,
+      isUnique: false,
+      isIndex: true,
+      showInList: false,
+      control: 'number',
+      queryType: 'none',
+    };
+    const fields = [fkField, ...qcForm.fields.map(({ _key, ...f }: any) => f as CodegenFieldDesign)];
+    await saveCodegenDesign({
+      tableName: qcForm.tableName.trim(),
+      displayName: qcForm.displayName.trim(),
+      fields,
+      remark: '从表（主从快捷创建）',
+    });
+    message.success('从表设计已保存，可在主从配置里选用');
+    qcVisible.value = false;
+    await loadAllDesigns();
+    // 自动挂到发起快捷创建的配置行
+    const created = allDesigns.value.find((d) => d.tableName === qcForm.tableName.trim());
+    if (created && qcTargetKey != null) {
+      const row = editForm.masterDetails.find((r) => r._key === qcTargetKey);
+      if (row) {
+        row.detailTableId = created.id;
+        row.foreignKey = qcForm.foreignKey.trim();
+      }
+    }
+  } finally {
+    qcSaving.value = false;
   }
 }
 
@@ -536,6 +853,7 @@ async function openRecordDetail(record: CodegenRecord) {
 onMounted(() => {
   loadDesigns();
   loadRecords();
+  loadAllDesigns();
 });
 </script>
 

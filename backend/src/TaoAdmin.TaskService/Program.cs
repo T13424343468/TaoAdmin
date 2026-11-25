@@ -94,7 +94,8 @@ builder.Services.AddSingleton<AlertNotifier>();
 builder.Services.AddSingleton<JobExecutionRecorder>();
 
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.NumberHandling = JsonNumberHandling.WriteAsString);
+    .AddJsonOptions(o => o.JsonSerializerOptions.NumberHandling =
+        JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString);
 // 接口文档：官方内置 OpenAPI + Scalar UI
 builder.Services.AddOpenApi("v1", o =>
     o.AddDocumentTransformer((doc, ctx, ct) =>
