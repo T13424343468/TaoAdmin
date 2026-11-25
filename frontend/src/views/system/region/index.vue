@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <PageLayout>
     <!-- 数据版本与更新（老板令：页面显示当前数据版本、抓取时间、条数；更新后台执行+进度可见） -->
     <a-card :bordered="false" size="small" style="margin-bottom: 12px">
@@ -115,7 +115,9 @@ import {
   type RegionUpdateProgress,
 } from '@/api/region';
 
-const regionFilters = reactive<{ keyword: string }>({ keyword: '' });
+const cascaderOptions = ref<any[]>([]);
+const regionFilters = reactive<{ keyword: string; cascader: string[] }>({ keyword: '', cascader: [] });
+
 const keyword = computed({
   get: () => regionFilters.keyword,
   set: (v: string) => { regionFilters.keyword = v; },
@@ -175,6 +177,7 @@ onMounted(async () => {
   try {
     const [provinces, st] = await Promise.all([getRegionChildren(''), getRegionStatus()]);
     treeData.value = provinces.map(toTreeNode);
+    void initCascaderRoot();
     status.value = st;
     // 刷新页面后进度仍在：进入页面即拉一次最近任务状态，执行中则继续轮询
     progress.value = st.update;
@@ -184,13 +187,74 @@ onMounted(async () => {
   }
 });
 
-const regionFilterFields: FilterField[] = [
+const regionFilterFields = computed<FilterField[]>(() => [
+  {
+    key: 'cascader',
+    label: '属地',
+    type: 'cascader',
+    primary: true,
+    placeholder: '省 / 市 / 区县 / 街道',
+    width: 260,
+    cascaderOptions: cascaderOptions.value,
+    cascaderLoadData: onCascaderLoad,
+    onCascaderChange: onCascaderChange,
+  },
   { key: 'keyword', label: '关键词', type: 'input', primary: true, placeholder: '名称或路径，如：朝阳 / 东华门街道' },
-];
+]);
+
+
+// ============ 级联筛选（省/市/区县/街道懒加载） ============
+
+const cascaderRows = ref<TreeNode[]>([]);
+
+/** 级联初始选项：省级（进入页面即拉） */
+async function initCascaderRoot(): Promise<void> {
+  try {
+    cascaderOptions.value = (await getRegionChildren('')).map((c) => ({
+      value: c.code,
+      label: c.name,
+      isLeaf: false,
+    }));
+  } catch {
+    cascaderOptions.value = [];
+  }
+}
+
+/** 级联选中变化：按最深选中的代码展示其子级（选中省级看省列表下钻入口，选中到街道看该街道） */
+async function onCascaderChange(value: string[]): Promise<void> {
+  regionFilters.cascader = value || [];
+  if (!value || !value.length) {
+    cascaderRows.value = [];
+    return;
+  }
+  loading.value = true;
+  try {
+    const rows = await getRegionChildren(value[value.length - 1]);
+    cascaderRows.value = rows.map(toTreeNode);
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** a-cascader 懒加载钩子：展开节点时拉子级 */
+async function onCascaderLoad(option: any): Promise<void> {
+  try {
+    const children = await getRegionChildren(option.value);
+    option.children = children.map((c) => ({
+      value: c.code,
+      label: c.name,
+      isLeaf: c.level >= 4,
+    }));
+  } catch {
+    option.children = [];
+  }
+}
 
 function resetRegionQuery(): void {
   regionFilters.keyword = '';
-  onSearch();
+  regionFilters.cascader = [];
+  cascaderRows.value = [];
+  clearSearch();
 }
 
 async function onSearch(): Promise<void> {
@@ -217,9 +281,11 @@ function clearSearch(): void {
 }
 
 /** 搜索态展示命中列表（含全路径），否则展示省级树 */
-const viewData = computed<TreeNode[]>(() =>
-  searched.value ? searchResults.value.map(toTreeNode) : treeData.value
-);
+const viewData = computed<TreeNode[]>(() => {
+  if (searched.value) return searchResults.value.map(toTreeNode);
+  if (regionFilters.cascader.length) return cascaderRows.value;
+  return treeData.value;
+});
 
 // ==================== 后台更新与进度轮询 ====================
 

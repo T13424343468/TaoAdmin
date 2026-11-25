@@ -34,6 +34,18 @@
               :style="{ width: `${f.width || 360}px` }"
               @update:value="(v: any) => setValue(f.key, v)"
             />
+            <!-- 级联选择 -->
+            <a-cascader
+              v-else-if="f.type === 'cascader'"
+              :value="values[f.key]"
+              :options="f.cascaderOptions || []"
+              :load-data="f.cascaderLoadData"
+              :placeholder="f.placeholder || '请选择'"
+              change-on-select
+              allow-clear
+              :style="{ width: `${f.width || 220}px` }"
+              @update:value="(v: any) => { setValue(f.key, v); f.onCascaderChange && f.onCascaderChange(v); }"
+            />
           </a-form-item>
         </template>
         <!-- 页面自定义的筛选项插槽 -->
@@ -65,12 +77,18 @@ export interface FilterField {
   key: string;
   label: string;
   /** 控件类型 */
-  type: 'input' | 'select' | 'dateRange';
+  type: 'input' | 'select' | 'dateRange' | 'cascader';
   /** 是否为核心筛选项（默认显示在最左侧） */
   primary?: boolean;
   placeholder?: string;
   /** select 的选项 */
   options?: { label: string; value: any }[];
+  /** cascader 的选项（懒加载由页面侧通过 loadData 动态填充） */
+  cascaderOptions?: any[];
+  /** cascader 懒加载钩子（展开节点时拉子级） */
+  cascaderLoadData?: (option: any) => Promise<void>;
+  /** cascader 选中变化回调（值为数组，逐级代码） */
+  onCascaderChange?: (value: string[]) => void;
   /** 控件宽度（px），input 默认 180、select 130、dateRange 360 */
   width?: number;
   /** input 回车是否触发查询，默认 true */

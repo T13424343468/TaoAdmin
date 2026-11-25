@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <PageLayout>
     <a-tabs v-model:active-key="activeTab">
       <!-- ============ 表设计 ============ -->
@@ -281,6 +281,7 @@
 <script setup lang="ts">
 import {
   getCodegenDesigns,
+  getCodegenDesign,
   saveCodegenDesign,
   deleteCodegenDesign,
   syncCodegenDesign,
@@ -415,7 +416,7 @@ function openCreate() {
 }
 
 async function openEdit(record: CodegenDesign) {
-  const detail = await import('@/api/codegen').then((m) => m.getCodegenDesign(record.id));
+  const detail = await getCodegenDesign(record.id);
   editForm.id = detail.id;
   editForm.tableName = detail.tableName;
   editForm.displayName = detail.displayName;
