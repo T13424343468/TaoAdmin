@@ -120,14 +120,14 @@ function setValue(key: string, val: any) {
 <style scoped>
 .filter-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 4px 16px;
   margin-bottom: 16px;
 }
 
 .filter-bar-fields {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
 }
 

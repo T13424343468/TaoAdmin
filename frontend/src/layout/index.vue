@@ -203,9 +203,7 @@
         </router-view>
       </a-layout-content>
 
-      <a-layout-footer class="app-footer" v-if="siteStore.config.siteFooter">
-        {{ siteStore.config.siteFooter }}
-      </a-layout-footer>
+      <!-- 页脚留白带按老板令移除（2026-11-26）：分页贴底右下角，只留内容区边距 -->
     </a-layout>
 
     <!-- 公告详情弹窗（顶栏通知点击展开） -->
@@ -901,11 +899,5 @@ async function onForceChangePwd() {
   line-height: 1.7;
   max-height: 50vh;
   overflow-y: auto;
-}
-
-.app-footer {
-  text-align: center;
-  color: rgba(0, 0, 0, 0.45);
-  font-size: 12px;
 }
 </style>

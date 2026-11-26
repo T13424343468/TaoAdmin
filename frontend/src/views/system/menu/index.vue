@@ -14,6 +14,7 @@
     <!-- 树形表格：菜单 / 按钮 -->
     <template #table="{ scrollY }">
     <a-table
+      :scroll="{ y: scrollY }"
       :data-source="menuTree"
       :columns="columns"
       :loading="loading"

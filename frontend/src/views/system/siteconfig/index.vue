@@ -38,9 +38,7 @@
           </div>
         </a-form-item>
 
-        <a-form-item label="页脚文案" name="siteFooter" extra="显示在全站页脚，可为空（不显示）">
-          <a-input v-model:value="form.siteFooter" placeholder="如：TaoAdmin ©2026" :maxlength="100" show-count />
-        </a-form-item>
+        <!-- 页脚文案配置项已随页脚留白带移除（2026-11-26 老板令）；form.siteFooter 保留装载与回存，避免保存时冲掉后端配置 -->
 
         <a-form-item>
           <a-space>

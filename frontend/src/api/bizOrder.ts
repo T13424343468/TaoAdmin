@@ -8,6 +8,12 @@ export interface BizOrderItem {
   orderAmount: number;
 }
 
+export interface BizOrderItemItem {
+  id: string;
+  orderNo: string;
+  orderAmount: number;
+}
+
 export interface BizOrderSave {
   id?: string;
   orderNo: string;

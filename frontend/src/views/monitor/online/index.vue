@@ -15,6 +15,7 @@
     <!-- 表格 -->
     <template #table="{ scrollY }">
     <a-table
+      :scroll="{ y: scrollY }"
       :data-source="data"
       :columns="columns"
       :loading="loading"

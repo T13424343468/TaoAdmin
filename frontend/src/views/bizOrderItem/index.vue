@@ -42,7 +42,6 @@
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'">
           <a-space>
-            <a @click="openDetail(record)">详情</a>
             <a @click="openEdit(record)">编辑</a>
             <a-popconfirm title="确定删除该条记录吗？" @confirm="onDelete(record)">
               <a class="danger-link">删除</a>

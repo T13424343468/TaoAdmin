@@ -387,7 +387,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.cs", content = GenAppService(design, fields, entityName, detailPairs) });
             files.Add(new CodegenFile { path = $"backend/src/TaoAdmin.Application/Services/{entityName}AppService.Extensions.cs", content = GenExtensionStub(entityName) });
             files.Add(new CodegenFile { path = $"{ctrlPath}/{entityName}Controller.cs", content = GenController(design, fields, entityName, ctrlNs, withDetails: true) });
-            files.Add(new CodegenFile { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel, detailPairs.Select(p => p.Entity).ToList()) });
+            files.Add(new CodegenFile { path = $"frontend/src/api/{camel}.ts", content = GenFrontendApi(design, fields, entityName, camel, detailPairs.Select(p => (p.Entity, p.Fields)).ToList()) });
             files.Add(new CodegenFile { path = $"frontend/src/views/{camel}/index.vue", content = GenFrontendPage(design, fields, entityName, camel, detailPairs) });
             files.Add(new CodegenFile { path = $"generated/{design.TableName}/menu-permission-init.sql", content = GenMenuPermissionSql(design, entityName) });
 
@@ -1480,7 +1480,7 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         return sb.ToString();
     }
 
-    private static string GenFrontendApi(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, string camel, List<string>? detailEntities = null)
+    private static string GenFrontendApi(SysCodeGenTable design, List<CodegenFieldDesign> fields, string entityName, string camel, List<(string Entity, List<CodegenFieldDesign> Fields)>? detailTables = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// ==== CODEGEN GENERATED FILE（生成区：重复生成会覆盖本文件） ====");
@@ -1493,6 +1493,19 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
             sb.AppendLine($"  {JsKey(f.name)}: {TsType(f)};");
         sb.AppendLine("}");
         sb.AppendLine();
+        // 主从表主表：从表 Item 接口就地生成在主表 api 文件（详情返回引用，避免跨文件未定义引用）
+        if (detailTables != null)
+        {
+            foreach (var (de, dfields) in detailTables)
+            {
+                sb.AppendLine($"export interface {de}Item {{");
+                sb.AppendLine("  id: string;");
+                foreach (var f in dfields)
+                    sb.AppendLine($"  {JsKey(f.name)}: {TsType(f)};");
+                sb.AppendLine("}");
+                sb.AppendLine();
+            }
+        }
         sb.AppendLine($"export interface {entityName}Save {{");
         sb.AppendLine("  id?: string;");
         foreach (var f in fields)
@@ -1505,10 +1518,10 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("/** 详情 */");
-        if (detailEntities != null && detailEntities.Count > 0)
+        if (detailTables != null && detailTables.Count > 0)
         {
             // 主从表主表：详情返回 { master, details0, details1, ... }
-            var detailType = string.Join("", detailEntities.Select((de, i) => $"; details{i}: {de}Item[]"));
+            var detailType = string.Join("", detailTables.Select((p, i) => $"; details{i}: {p.Entity}Item[]"));
             sb.AppendLine($"export function get{entityName}(id: string): Promise<{{ master: {entityName}Item{detailType} }}> {{");
         }
         else
@@ -1681,7 +1694,11 @@ public class CodeGenAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflak
         sb.AppendLine("      <template #bodyCell=\"{ column, record }\">");
         sb.AppendLine("        <template v-if=\"column.key === 'action'\">");
         sb.AppendLine("          <a-space>");
-        sb.AppendLine("            <a @click=\"openDetail(record)\">详情</a>");
+        if (masterDetails != null)
+        {
+            // 详情抽屉仅主从表生成（单表页无 openDetail 函数与抽屉模板，避免引用未定义成员）
+            sb.AppendLine("            <a @click=\"openDetail(record)\">详情</a>");
+        }
         sb.AppendLine("            <a @click=\"openEdit(record)\">编辑</a>");
         sb.AppendLine("            <a-popconfirm title=\"确定删除该条记录吗？\" @confirm=\"onDelete(record)\">");
         sb.AppendLine("              <a class=\"danger-link\">删除</a>");

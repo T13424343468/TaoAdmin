@@ -20,6 +20,7 @@
 
     <template #table="{ scrollY }">
     <a-table
+      :scroll="{ y: scrollY }"
       :columns="columns"
       :data-source="rows"
       :loading="loading"
