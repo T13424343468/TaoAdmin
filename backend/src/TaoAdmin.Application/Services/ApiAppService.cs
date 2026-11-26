@@ -57,9 +57,12 @@ public class ApiAppService
         }
         else
         {
+            var id = long.Parse(req.id);
+            if (await _db.Queryable<SysApi>().AnyAsync(a => a.Path == req.path && a.HttpMethod == method && a.Id != id && a.IsDeleted == false))
+                throw new DomainException("同路径同方法的接口已存在", 400);
             await _apis.UpdateAsync(new SysApi
             {
-                Id = long.Parse(req.id),
+                Id = id,
                 Name = req.name,
                 Path = req.path,
                 HttpMethod = method,

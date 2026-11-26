@@ -33,6 +33,7 @@ public class JobController : BaseApiController
         [FromQuery] int pageIndex = 1, [FromQuery] int pageSize = 10, [FromQuery] string? keyword = null)
     {
         var query = _db.Queryable<SysJob>()
+            .Where(j => j.IsDeleted == false)
             .WhereIF(!string.IsNullOrEmpty(keyword), j => j.Name.Contains(keyword!) || j.Handler.Contains(keyword!));
         var total = await query.CountAsync();
         var rows = await query.OrderByDescending(j => j.CreatedAt)
@@ -64,7 +65,7 @@ public class JobController : BaseApiController
         [FromQuery] int pageIndex = 1, [FromQuery] int pageSize = 20)
     {
         var jobId = long.Parse(id);
-        var query = _db.Queryable<SysJobLog>().Where(l => l.JobId == jobId);
+        var query = _db.Queryable<SysJobLog>().Where(l => l.JobId == jobId && l.IsDeleted == false);
         var total = await query.CountAsync();
         var rows = await query.OrderByDescending(l => l.StartTime)
             .Skip((pageIndex - 1) * pageSize).Take(pageSize).ToListAsync();
@@ -99,7 +100,7 @@ public class JobController : BaseApiController
     [Permission("sys:job:edit")]
     public async Task<ApiResult<object>> Update(string id, [FromBody] JobSaveRequest req)
     {
-        var job = await _db.Queryable<SysJob>().InSingleAsync(long.Parse(id));
+        var job = await GetJobOr404(id);
         UpdateJob(job, req);
         await _db.Updateable(job)
             .UpdateColumns(j => new { j.Name, j.Group, j.Cron, j.Handler, j.Params, j.Description, j.RetryCount, j.UpdatedAt })
@@ -114,9 +115,11 @@ public class JobController : BaseApiController
     [Permission("sys:job:delete")]
     public async Task<ApiResult<object>> Delete(string id)
     {
-        var job = await _db.Queryable<SysJob>().InSingleAsync(long.Parse(id));
+        var job = await GetJobOr404(id);
         await UnscheduleAsync(job.Name, job.Group);
-        await _db.Deleteable<SysJob>().In(job.Id).ExecuteCommandAsync();
+        job.IsDeleted = true;
+        job.UpdatedAt = DateTime.Now;
+        await _db.Updateable(job).UpdateColumns(j => new { j.IsDeleted, j.UpdatedAt }).ExecuteCommandAsync();
         return ApiOk("删除成功");
     }
 
@@ -125,7 +128,7 @@ public class JobController : BaseApiController
     [Permission("sys:job:pause")]
     public async Task<ApiResult<object>> Pause(string id)
     {
-        var job = await _db.Queryable<SysJob>().InSingleAsync(long.Parse(id));
+        var job = await GetJobOr404(id);
         var scheduler = await _schedulerFactory.GetScheduler();
         await scheduler.PauseJob(new JobKey(job.Name, job.Group));
         job.Status = "PAUSED";
@@ -138,7 +141,7 @@ public class JobController : BaseApiController
     [Permission("sys:job:resume")]
     public async Task<ApiResult<object>> Resume(string id)
     {
-        var job = await _db.Queryable<SysJob>().InSingleAsync(long.Parse(id));
+        var job = await GetJobOr404(id);
         var scheduler = await _schedulerFactory.GetScheduler();
         await scheduler.ResumeJob(new JobKey(job.Name, job.Group));
         job.Status = "RUNNING";
@@ -151,7 +154,7 @@ public class JobController : BaseApiController
     [Permission("sys:job:run")]
     public async Task<ApiResult<object>> Run(string id)
     {
-        var job = await _db.Queryable<SysJob>().InSingleAsync(long.Parse(id));
+        var job = await GetJobOr404(id);
         var scheduler = await _schedulerFactory.GetScheduler();
         await scheduler.TriggerJob(new JobKey(job.Name, job.Group));
         return ApiOk("已触发执行");
@@ -176,6 +179,11 @@ public class JobController : BaseApiController
     }
 
     // ---------- 内部 ----------
+
+    /// <summary>按 Id 查未删任务，不存在或已删抛 404（避免 NRE 500）</summary>
+    private async Task<SysJob> GetJobOr404(string id)
+        => await _db.Queryable<SysJob>().FirstAsync(j => j.Id == long.Parse(id) && j.IsDeleted == false)
+           ?? throw new TaoAdmin.Domain.DomainException("任务不存在", 404);
 
     private SysJob BuildJob(JobSaveRequest req, bool isNew)
     {
@@ -234,7 +242,7 @@ public class JobController : BaseApiController
     }
 }
 
-/// <summary>处理器标识 -> IJob 类型映射</summary>
+/// <summary>处理器标识 -> IJob 类型映射（仅白名单，禁止用户输入触发任意类型加载）</summary>
 public static class HandlerRegistry
 {
     private static readonly Dictionary<string, Type> Map = new(StringComparer.OrdinalIgnoreCase)
@@ -243,5 +251,5 @@ public static class HandlerRegistry
     };
 
     public static Type? Resolve(string handler)
-        => Map.TryGetValue(handler, out var type) ? type : Type.GetType(handler, throwOnError: false);
+        => Map.TryGetValue(handler, out var type) ? type : null;
 }

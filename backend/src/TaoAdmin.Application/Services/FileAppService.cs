@@ -169,7 +169,7 @@ public class FileAppService(ISqlSugarClient db, IFileStorageProvider storage, Sn
         return stream is null ? null : (row, stream);
     }
 
-    /// <summary>删除文件（软删 + 删物理文件；秒传复用场景下物理文件可能已不存在，容忍）</summary>
+    /// <summary>删除文件（软删；秒传按 MD5 复用同一物理文件，仍有其他未删记录引用时保留物理文件，防止断链）</summary>
     public async Task DeleteAsync(long id)
     {
         var row = await db.Queryable<SysFile>().FirstAsync(f => f.Id == id && f.IsDeleted == false)
@@ -177,6 +177,9 @@ public class FileAppService(ISqlSugarClient db, IFileStorageProvider storage, Sn
         row.IsDeleted = true;
         row.UpdatedAt = DateTime.Now;
         await db.Updateable(row).ExecuteCommandAsync();
-        await storage.DeleteAsync(row.FileUrl);
+        var stillReferenced = await db.Queryable<SysFile>().AnyAsync(f =>
+            f.Id != id && f.IsDeleted == false && (f.FileUrl == row.FileUrl || (f.Md5 == row.Md5 && f.Md5 != null)));
+        if (!stillReferenced)
+            await storage.DeleteAsync(row.FileUrl);
     }
 }

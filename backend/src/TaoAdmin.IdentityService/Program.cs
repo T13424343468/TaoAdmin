@@ -56,7 +56,10 @@ builder.Services.AddSqlSugar(builder.Configuration);
 
 // ==================== Redis ====================
 var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ => StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnection));
+// AbortOnConnectFail=false：Redis 不可用不阻断启动（会话镜像/登录锁定降级为本进程语义），连接后台自动重试
+var redisOptions = StackExchange.Redis.ConfigurationOptions.Parse(redisConnection);
+redisOptions.AbortOnConnectFail = false;
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ => StackExchange.Redis.ConnectionMultiplexer.Connect(redisOptions));
 builder.Services.AddSingleton<RedisHelper>();
 
 // ==================== 雪花ID ====================
@@ -72,7 +75,13 @@ builder.Services.AddSingleton<JwtTokenService>();
 var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
 
 // ==================== 在线会话（在线用户名单 + 强制下线账本） ====================
-builder.Services.AddSingleton(sp => new OnlineSessionStore(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<JwtOptions>>().Value.ExpireMinutes));
+builder.Services.AddSingleton(sp =>
+{
+    var store = new OnlineSessionStore(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<JwtOptions>>().Value.ExpireMinutes);
+    // 吊销状态挂 Redis 镜像：TaskService 共享同一份，强制下线全服务即刻生效
+    store.AttachRedis(sp.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>());
+    return store;
+});
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -96,6 +105,10 @@ builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHand
 builder.Services.AddAuthorization();
 
 // ==================== DDD 依赖装配：应用服务 + 仓储实现 ====================
+// 自动装配：扫描应用层全部 *AppService（含一键生成的产物服务），避免生成新服务后 DI 漏注册导致控制器 500
+foreach (var t in typeof(CodeGenAppService).Assembly.GetTypes()
+             .Where(t => t.IsClass && !t.IsAbstract && t.Name.EndsWith("AppService")))
+    builder.Services.AddScoped(t);
 builder.Services.AddScoped<PermissionAppService>();
 builder.Services.AddScoped<AuthAppService>();
 builder.Services.AddScoped<UserAppService>();

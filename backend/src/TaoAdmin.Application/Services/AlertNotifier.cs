@@ -34,7 +34,7 @@ public class AlertNotifier
     public async Task<int> NotifyAsync(string eventType, string title, string content, int currentCount)
     {
         var rules = await _db.Queryable<SysAlertRule>()
-            .Where(r => r.Enabled && r.EventType == eventType && r.Threshold <= currentCount)
+            .Where(r => r.Enabled && r.EventType == eventType && r.Threshold <= currentCount && r.IsDeleted == false)
             .ToListAsync();
         var sent = 0;
         foreach (var rule in rules)

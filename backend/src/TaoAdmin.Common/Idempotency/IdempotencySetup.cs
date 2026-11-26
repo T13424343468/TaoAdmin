@@ -56,21 +56,35 @@ public class IdempotencyFilter : IAsyncActionFilter
             context.Result = new JsonResult(result);
             return;
         }
-
-        var executed = await next();
-        if (executed.Exception == null && executed.Result != null)
+        if (_store.IsInFlight(cacheKey))
         {
-            var payload = executed.Result switch
+            // 同 Key 并发请求：首次结果尚未落缓存，直接拒绝重复执行（防重也防并发）
+            context.Result = new JsonResult(new ApiResult<object> { Code = 429, Success = false, Message = "相同请求正在处理中，请勿重复提交" });
+            return;
+        }
+        _store.Begin(cacheKey, TimeSpan.FromSeconds(marker.TtlSeconds));
+
+        try
+        {
+            var executed = await next();
+            if (executed.Exception == null && executed.Result != null)
             {
-                ObjectResult o => o.Value,
-                ContentResult c => c.Content,
-                _ => (object?)null
-            };
-            if (payload != null)
-            {
-                var body = JsonSerializer.Serialize(payload);
-                _store.Save(cacheKey, body, TimeSpan.FromSeconds(marker.TtlSeconds));
+                var payload = executed.Result switch
+                {
+                    ObjectResult o => o.Value,
+                    ContentResult c => c.Content,
+                    _ => (object?)null
+                };
+                if (payload != null)
+                {
+                    var body = JsonSerializer.Serialize(payload);
+                    _store.Save(cacheKey, body, TimeSpan.FromSeconds(marker.TtlSeconds));
+                }
             }
+        }
+        finally
+        {
+            _store.End(cacheKey);
         }
     }
 }
@@ -85,6 +99,9 @@ public class IdempotencyStore
     }
 
     private readonly ConcurrentDictionary<string, Entry> _cache = new();
+    private readonly ConcurrentDictionary<string, DateTime> _inFlight = new();
+    // 过期清理节奏：每 200 次写入顺带清一次过期项，避免不同 Key 持续增长不回收
+    private int _writeCounter;
 
     public string? TryGet(string key)
     {
@@ -97,8 +114,35 @@ public class IdempotencyStore
         return entry.Body;
     }
 
+    /// <summary>同 Key 并发防重：标记执行中（TTL 内有效），并发重复请求据此拒绝</summary>
+    public bool IsInFlight(string key)
+        => _inFlight.TryGetValue(key, out var started) && DateTime.Now - started < TimeSpan.FromMinutes(5);
+
+    public void Begin(string key, TimeSpan ttl)
+        => _inFlight[key] = DateTime.Now;
+
+    public void End(string key)
+        => _inFlight.TryRemove(key, out _);
+
     public void Save(string key, string body, TimeSpan ttl)
     {
         _cache[key] = new Entry { Body = body, ExpireAt = DateTime.Now.Add(ttl) };
+        if (++_writeCounter % 200 == 0) PruneExpired();
+    }
+
+    /// <summary>顺带清理过期条目（随写入节奏执行，无需后台线程）</summary>
+    private void PruneExpired()
+    {
+        var now = DateTime.Now;
+        foreach (var kv in _cache)
+        {
+            if (now > kv.Value.ExpireAt)
+                _cache.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _inFlight)
+        {
+            if (now - kv.Value > TimeSpan.FromMinutes(5))
+                _inFlight.TryRemove(kv.Key, out _);
+        }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using StackExchange.Redis;
 
 namespace TaoAdmin.Common.Auth;
 
@@ -30,11 +31,33 @@ public class OnlineSessionStore
     private readonly ConcurrentDictionary<string, OnlineSession> _sessions = new();
     private readonly ConcurrentDictionary<string, DateTime> _revoked = new();
     private readonly TimeSpan _tokenLifetime;
+    // Redis 镜像：吊销状态跨服务共享（多实例/多服务部署时被强制下线的令牌在所有服务即刻失效）
+    private volatile IConnectionMultiplexer? _redis;
+    private const string RevokedKeyPrefix = "taoadmin:revoked:";
 
     /// <param name="tokenLifetimeMinutes">访问令牌有效期（分钟），决定会话与吊销记录的清理节奏</param>
     public OnlineSessionStore(int tokenLifetimeMinutes = 120)
     {
         _tokenLifetime = TimeSpan.FromMinutes(Math.Max(tokenLifetimeMinutes, 1));
+    }
+
+    /// <summary>
+    /// 挂载 Redis 镜像（启动时调用一次）：挂载后吊销写入 Redis（TTL=令牌剩余寿命），
+    /// 校验时本地未命中再查 Redis。Redis 不可用不阻断下线/校验，退化为本进程语义。
+    /// </summary>
+    public void AttachRedis(IConnectionMultiplexer redis)
+        => _redis = redis;
+
+    private void MirrorRevoke(string sessionId)
+    {
+        try
+        {
+            _redis?.GetDatabase().StringSet(RevokedKeyPrefix + sessionId, "1", _tokenLifetime);
+        }
+        catch
+        {
+            // Redis 不可用时不阻断强制下线，本地吊销仍然生效
+        }
     }
 
     /// <summary>登录登记（同 jti 重复登录覆盖旧记录，幂等）</summary>
@@ -62,6 +85,7 @@ public class OnlineSessionStore
     {
         if (!_sessions.TryRemove(sessionId, out _)) return false;
         _revoked[sessionId] = DateTime.Now;
+        MirrorRevoke(sessionId);
         return true;
     }
 
@@ -72,13 +96,29 @@ public class OnlineSessionStore
         foreach (var kv in kicked)
         {
             if (_sessions.TryRemove(kv.Key, out _))
+            {
                 _revoked[kv.Key] = DateTime.Now;
+                MirrorRevoke(kv.Key);
+            }
         }
         return kicked.Count;
     }
 
-    /// <summary>令牌是否已被吊销（强制下线/退出后为 true，命中即 401）</summary>
-    public bool IsRevoked(string sessionId) => _revoked.ContainsKey(sessionId);
+    /// <summary>令牌是否已被吊销（强制下线/退出后为 true，命中即 401；本地未命中再查 Redis 镜像）</summary>
+    public bool IsRevoked(string sessionId)
+    {
+        if (_revoked.ContainsKey(sessionId)) return true;
+        if (_redis is null) return false;
+        try
+        {
+            return _redis.GetDatabase().KeyExists(RevokedKeyPrefix + sessionId);
+        }
+        catch
+        {
+            // Redis 不可用时退化为本进程语义，不阻断请求
+            return false;
+        }
+    }
 
     /// <summary>当前在线名单（按登录时间倒序，先清过期）</summary>
     public List<OnlineSession> List()

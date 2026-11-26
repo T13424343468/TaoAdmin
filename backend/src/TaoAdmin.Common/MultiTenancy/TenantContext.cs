@@ -22,15 +22,18 @@ public static class TenantContext
     /// <summary>设置当前请求的租户（仅中间件调用）</summary>
     public static void Set(long tenantId) => _current.Value = tenantId;
 
-    /// <summary>解析请求中的租户：请求头 X-Tenant-Id 优先，其次 JWT 声明 tenant_id</summary>
+    /// <summary>
+    /// 解析请求中的租户：已认证请求强制以 JWT 声明 tenant_id 为准（防止伪造 X-Tenant-Id 越权切换租户）；
+    /// X-Tenant-Id 仅在未认证请求（如登录）时生效，用于登录页选择租户。
+    /// </summary>
     public static long Resolve(HttpContext context)
     {
-        var header = context.Request.Headers["X-Tenant-Id"].FirstOrDefault();
-        if (long.TryParse(header, out var fromHeader) && fromHeader >= 0)
-            return fromHeader;
-
         var claim = context.User.FindFirst("tenant_id")?.Value;
-        return long.TryParse(claim, out var fromClaim) ? fromClaim : 0;
+        if (long.TryParse(claim, out var fromClaim))
+            return fromClaim;
+
+        var header = context.Request.Headers["X-Tenant-Id"].FirstOrDefault();
+        return long.TryParse(header, out var fromHeader) && fromHeader >= 0 ? fromHeader : 0;
     }
 }
 

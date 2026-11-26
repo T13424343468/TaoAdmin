@@ -295,14 +295,14 @@ public class WorkflowMessageTenantTests : IDisposable
     public async Task GetDetail_MissingOrFound()
     {
         var svc = NewWorkflowSvc();
-        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.GetDetailAsync(424242));
+        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.GetDetailAsync(424242, 0, isSuperAdmin: true));
         Assert.Equal(404, ex.Code);
 
         var wfId = SeedWorkflow(nodeCount: 2);
         var instId = SeedInstance(wfId, title: "详情单");
         SeedTask(instId, 1, role: "role1");
         SeedTask(instId, 0, role: "role0");
-        var (dto, tasks) = await svc.GetDetailAsync(instId);
+        var (dto, tasks) = await svc.GetDetailAsync(instId, 0, isSuperAdmin: true);
         Assert.Equal("详情单", dto.bizTitle);
         Assert.Equal(2, tasks.Count);
         Assert.Equal("节点1", tasks[0].nodeName); // 按 NodeIndex 排序
@@ -339,7 +339,7 @@ public class WorkflowMessageTenantTests : IDisposable
         var svc = NewWorkflowSvc();
         var instId = SeedInstance(888888, status: 9); // 无对应流程定义，走孤儿实例路径
 
-        var (dto, tasks) = await svc.GetDetailAsync(instId);
+        var (dto, tasks) = await svc.GetDetailAsync(instId, 0, isSuperAdmin: true);
         Assert.Equal("未知", dto.statusText); // 状态 9 不在映射表 → 未知
     }
 
@@ -503,7 +503,7 @@ public class WorkflowMessageTenantTests : IDisposable
     public async Task Message_MarkRead_Missing_ShouldThrow404()
     {
         var svc = NewMessageSvc();
-        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.MarkReadAsync(555));
+        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.MarkReadAsync(555, 0));
         Assert.Equal(404, ex.Code);
     }
 
@@ -512,7 +512,7 @@ public class WorkflowMessageTenantTests : IDisposable
     {
         _db.Insertable(new SysMessage { Id = 1, Title = "t" }).ExecuteCommand();
         var svc = NewMessageSvc();
-        await svc.MarkReadAsync(1);
+        await svc.MarkReadAsync(1, 0);
         Assert.True(_db.Queryable<SysMessage>().First(m => m.Id == 1).IsRead);
     }
 
@@ -524,10 +524,10 @@ public class WorkflowMessageTenantTests : IDisposable
         _db.Insertable(new SysMessage { Id = 3, Title = "c", IsRead = true }).ExecuteCommand();
         var svc = NewMessageSvc();
 
-        var deleted = await svc.BatchDeleteAsync(new List<long> { 1, 2, 999 });
+        var deleted = await svc.BatchDeleteAsync(new List<long> { 1, 2, 999 }, 0);
         Assert.Equal(2, deleted);
 
-        var marked = await svc.BatchMarkReadAsync(new List<long> { 3, 999 });
+        var marked = await svc.BatchMarkReadAsync(new List<long> { 3, 999 }, 0);
         Assert.Equal(0, marked); // 已读的不再重复标记
     }
 

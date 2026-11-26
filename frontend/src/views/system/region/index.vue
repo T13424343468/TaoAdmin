@@ -99,7 +99,7 @@
  * 数据版本展示 + 一键更新（后台执行不卡屏，进度实时轮询，刷新页面进度仍在）；
  * 不做逐条新增/编辑/删除（对齐老板口径：除更新外只读）。
  */
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, onActivated, onDeactivated, reactive, ref } from 'vue';
 import { Modal, message } from 'ant-design-vue';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
 import PageLayout from '@/components/PageLayout/index.vue';
@@ -315,6 +315,12 @@ function stopPolling(): void {
     pollTimer = null;
   }
 }
+
+// keep-alive 缓存下切走时暂停进度轮询、切回时恢复，避免后台空转
+onDeactivated(stopPolling);
+onActivated(() => {
+  if (progress.value?.status === 'Running') startPolling();
+});
 
 onUnmounted(stopPolling);
 

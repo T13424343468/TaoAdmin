@@ -62,19 +62,25 @@ public class SysCodeGenTable : BaseEntity
         }
     }
 
-    /// <summary>解析主从关系配置（损坏或为空时返回 null）</summary>
+    /// <summary>解析主从关系配置（损坏或为空时返回 null；雪花ID按字符串读写，避免前端 JSON.parse 精度丢失）</summary>
     public CodegenMasterDetailConfig? ParseMasterDetail()
     {
         if (string.IsNullOrWhiteSpace(MasterDetailJson)) return null;
         try
         {
-            return JsonSerializer.Deserialize<CodegenMasterDetailConfig>(MasterDetailJson);
+            return JsonSerializer.Deserialize<CodegenMasterDetailConfig>(MasterDetailJson, CodegenJsonOptions);
         }
         catch (JsonException)
         {
             return null;
         }
     }
+
+    /// <summary>代码生成器 JSON 口径：长整型（雪花ID）序列化为字符串、读取兼容字符串数字，与 MVC 全局口径一致</summary>
+    public static readonly JsonSerializerOptions CodegenJsonOptions = new()
+    {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.WriteAsString | System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString,
+    };
 
     /// <summary>解析字段设计（损坏或为空时返回空清单）</summary>
     public List<CodegenFieldDesign> ParseFields()

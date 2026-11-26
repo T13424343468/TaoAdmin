@@ -73,7 +73,7 @@ public class MessageController : BaseApiController
     [HttpPut("{id}/read")]
     public async Task<ApiResult<object>> MarkRead(string id)
     {
-        await _svc.MarkReadAsync(long.Parse(id));
+        await _svc.MarkReadAsync(long.Parse(id), User.GetUserId());
         return ApiOk("已标记已读");
     }
 
@@ -81,7 +81,7 @@ public class MessageController : BaseApiController
     [HttpPost("batch-read")]
     public async Task<ApiResult<object>> BatchRead([FromBody] BatchIdsRequest req)
     {
-        var updated = await _svc.BatchMarkReadAsync(req.Ids);
+        var updated = await _svc.BatchMarkReadAsync(req.Ids, User.GetUserId());
         return ApiOk<object>(new { updated }, "已批量标记已读");
     }
 
@@ -89,7 +89,7 @@ public class MessageController : BaseApiController
     [HttpPost("batch-delete")]
     public async Task<ApiResult<object>> BatchDelete([FromBody] BatchIdsRequest req)
     {
-        var deleted = await _svc.BatchDeleteAsync(req.Ids);
+        var deleted = await _svc.BatchDeleteAsync(req.Ids, User.GetUserId());
         return ApiOk<object>(new { deleted }, "批量删除完成");
     }
 
@@ -143,7 +143,7 @@ public class WorkflowController : BaseApiController
     [HttpGet("instances/{id}")]
     public async Task<ApiResult<object>> Detail(string id)
     {
-        var (instance, tasks) = await _svc.GetDetailAsync(long.Parse(id));
+        var (instance, tasks) = await _svc.GetDetailAsync(long.Parse(id), User.GetUserId(), User.IsSuperAdmin());
         return ApiOk<object>(new { instance, tasks });
     }
 

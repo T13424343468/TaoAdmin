@@ -32,8 +32,14 @@ public class FinalGapGatewayTests
 
     private static WebApplicationFactory<GatewayResourceCollector> Build()
         => new WebApplicationFactory<GatewayResourceCollector>()
-            .WithWebHostBuilder(b => b.UseSetting("Monitor:LogDir",
-                Path.Combine(Path.GetTempPath(), $"tao-gwgap-logs-{Guid.NewGuid():N}")));
+            .WithWebHostBuilder(b =>
+            {
+                b.UseSetting("Monitor:LogDir",
+                    Path.Combine(Path.GetTempPath(), $"tao-gwgap-logs-{Guid.NewGuid():N}"));
+                // 封闭环境：代理目标指向不可达端口，保证「下游不可达 5xx」断言不受本机真实服务影响
+                b.UseSetting("ReverseProxy:Clusters:identity:Destinations:d1:Address", "http://127.0.0.1:59999/");
+                b.UseSetting("ReverseProxy:Clusters:task:Destinations:d1:Address", "http://127.0.0.1:59999/");
+            });
 
     [Fact]
     public async Task 代理请求_无效token_未认证身份走转换跳过透传()

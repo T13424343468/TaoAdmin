@@ -94,6 +94,7 @@ import {
 import { getServices } from '@/api/monitor';
 import { getJobPage, type JobItem } from '@/api/job';
 import { getLogs, type LogItem, type ServiceItem } from '@/api/monitor';
+import { getUserPage } from '@/api/system';
 
 const loading = ref(false);
 const services = ref<ServiceItem[]>([]);
@@ -117,17 +118,18 @@ const logColumns = [
 async function loadStats() {
   loading.value = true;
   try {
-    const [svc, jobs, logs] = await Promise.all([
+    const [svc, jobs, logs, users] = await Promise.all([
       getServices().catch(() => []),
       getJobPage({ pageIndex: 1, pageSize: 50 }).catch(() => ({ items: [], total: 0 }) as any),
       getLogs({ pageIndex: 1, pageSize: 10, level: 'ERROR' }).catch(() => ({ items: [], total: 0 }) as any),
+      getUserPage({ pageIndex: 1, pageSize: 1 }).catch(() => ({ items: [], total: 0 }) as any),
     ]);
 
     services.value = svc || [];
     runningJobs.value = jobs.items || [];
     recentErrorLogs.value = logs.items || [];
 
-    statCards.value[0].value = 0; // 用户数从 /identity/users 获取，此处默认展示，可按需接入
+    statCards.value[0].value = users.total || 0;
     statCards.value[1].value = (svc || []).filter((s) => s.status === 'UP').length;
     statCards.value[2].value = jobs.total || 0;
     statCards.value[3].value = logs.total || 0;

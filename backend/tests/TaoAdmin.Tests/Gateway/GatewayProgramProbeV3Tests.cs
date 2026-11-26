@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -70,26 +71,45 @@ public class GatewayProgramProbeV3Tests
     [Fact]
     public async Task Program_SecretKey缺省_默认密钥装配可用()
     {
-        // 内存配置源以显式 null 压过 appsettings 的 Jwt:SecretKey → 走默认密钥分支
+        // 安全加固后口径：SecretKey 缺失即 fail-fast，宿主启动必须失败（不再回退默认密钥）。
+        // 注入走精简内容根：临时目录放一份只含 ReverseProxy、不含 Jwt 段的 appsettings.json，
+        // 密钥缺省必然触发拦截；不用进程级环境变量（xunit 并行下会污染其他宿主探针测试，已实测踩坑）。
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"tao-gw3-nojwt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        const string minimalConfig = """
+            {
+              "ReverseProxy": {
+                "Routes": {
+                  "identity": {
+                    "ClusterId": "identity",
+                    "Match": { "Path": "/api/identity/{**catch-all}" },
+                    "Transforms": [ { "PathRemovePrefix": "/api/identity" } ]
+                  }
+                },
+                "Clusters": {
+                  "identity": {
+                    "Destinations": { "d1": { "Address": "http://localhost:5001/" } }
+                  }
+                }
+              }
+            }
+            """;
+        await File.WriteAllTextAsync(Path.Combine(tempRoot, "appsettings.json"), minimalConfig);
         var factory = new WebApplicationFactory<GatewayResourceCollector>()
             .WithWebHostBuilder(b =>
             {
+                b.UseContentRoot(tempRoot);
                 b.UseSetting("Monitor:LogDir", Path.Combine(Path.GetTempPath(), $"tao-gw3-logs-{Guid.NewGuid():N}"));
-                b.ConfigureAppConfiguration((ctx, cfg) => cfg.AddInMemoryCollection(
-                    new Dictionary<string, string?> { ["Jwt:SecretKey"] = null }));
             });
         try
         {
-            var client = factory.CreateClient();
-
-            var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/health");
-            request.Headers.Authorization = new("Bearer", MakeToken());
-            var authed = await client.SendAsync(request); // 认证链触发 JWT 选项装配（下游不可达 5xx 即可）
-            Assert.True((int)authed.StatusCode >= 500);
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                Task.Run(() => factory.CreateClient()));
         }
         finally
         {
-            await factory.DisposeAsync(); // 异步释放，避免占死同步上下文泵线程
+            await factory.DisposeAsync();
+            Directory.Delete(tempRoot, true);
         }
     }
 

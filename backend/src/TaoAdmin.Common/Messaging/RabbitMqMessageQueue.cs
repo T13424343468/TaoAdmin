@@ -36,13 +36,18 @@ public class RabbitMqMessageQueue : IMessageQueue, IDisposable
     private async Task<IChannel> GetChannelAsync(CancellationToken ct)
     {
         if (_connection is { IsOpen: true })
-            return _channels.Values.First();
+        {
+            // 复用仍打开的通道；断线重连后旧通道可能已关闭，剔除后新建
+            var alive = _channels.Values.FirstOrDefault(c => c.IsOpen);
+            if (alive != null) return alive;
+        }
         await _connectLock.WaitAsync(ct);
         try
         {
             if (_connection is not { IsOpen: true })
                 _connection = await _factory.CreateConnectionAsync(ct);
-            return _channels.Values.FirstOrDefault() ?? await CreateChannelAsync(ct);
+            var channel = _channels.Values.FirstOrDefault(c => c.IsOpen) ?? await CreateChannelAsync(ct);
+            return channel;
         }
         finally { _connectLock.Release(); }
     }

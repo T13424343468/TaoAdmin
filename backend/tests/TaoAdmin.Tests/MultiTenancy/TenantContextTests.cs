@@ -41,8 +41,13 @@ public class TenantContextTests : IDisposable
     [Fact]
     public void Resolve_Header_ShouldTakePriorityOverJwtClaim()
     {
+        // 越权修复后口径：已认证请求以令牌声明为准，X-Tenant-Id 不再覆盖；未认证请求才走请求头
         var ctx = HttpContextWith(UserWithTenant(11), headerTenantId: "22");
-        Assert.Equal(22, TenantContext.Resolve(ctx));
+        Assert.Equal(11, TenantContext.Resolve(ctx));
+
+        var anon = new DefaultHttpContext();
+        anon.Request.Headers["X-Tenant-Id"] = "22";
+        Assert.Equal(22, TenantContext.Resolve(anon));
     }
 
     [Fact]

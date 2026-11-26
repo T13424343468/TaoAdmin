@@ -24,7 +24,7 @@ public class SysCodeGenRecord : BaseEntity
     public string Mode { get; set; } = "generate";
 
     /// <summary>生成出的文件清单（JSON：[{path, content}]，内容带统一标记头）</summary>
-    [SugarColumn(ColumnDataType = "TEXT", IsNullable = true, ColumnDescription = "生成文件JSON")]
+    [SugarColumn(ColumnDataType = "LONGTEXT", IsNullable = true, ColumnDescription = "生成文件JSON")]
     public string? FilesJson { get; set; }
 
     /// <summary>文件数</summary>

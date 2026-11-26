@@ -68,12 +68,15 @@ public class MonitorAppService
         return result;
     }
 
-    /// <summary>分页查询本地 JSON 日志（倒序）：聚合目录下全部服务的日志文件，按服务名过滤。</summary>
+    /// <summary>分页查询本地 JSON 日志（倒序）：聚合目录下全部服务的日志文件，按服务名过滤。
+    /// 按文件从新到旧、行从尾到头流式扫描，内存只保留当前页数据（不再整目录载入）。</summary>
     public Task<(long Total, List<LogItemDto> Items)> GetLogsAsync(
         int pageIndex, int pageSize, string? level, string? service, string? keyword)
     {
         var dir = _config["Monitor:LogDir"] ?? "logs";
-        var lines = new List<LogItemDto>();
+        var items = new List<LogItemDto>();
+        long total = 0;
+        var skip = (pageIndex - 1) * pageSize;
 
         if (Directory.Exists(dir))
         {
@@ -81,21 +84,26 @@ public class MonitorAppService
             {
                 // 服务来源：优先取行内 Service 属性，取不到时用文件名（各服务分文件写日志，如 gateway.jsonl）
                 var fallbackService = Path.GetFileNameWithoutExtension(file);
-                foreach (var line in File.ReadLines(file))
+                // 单文件逐行倒序扫描：日志按时间追加，尾部即最新
+                var allLines = File.ReadAllLines(file);
+                for (var i = allLines.Length - 1; i >= 0; i--)
                 {
-                    var parsed = SerilogLineParser.Parse(line);
+                    var parsed = SerilogLineParser.Parse(allLines[i]);
                     if (parsed == null) continue;
                     var item = ToDto(parsed, fallbackService);
                     if (!string.IsNullOrEmpty(level) && !string.Equals(item.level, level, StringComparison.OrdinalIgnoreCase)) continue;
                     if (!string.IsNullOrEmpty(service) && !item.service.Contains(service, StringComparison.OrdinalIgnoreCase)) continue;
                     if (!string.IsNullOrEmpty(keyword) && !item.message.Contains(keyword, StringComparison.OrdinalIgnoreCase)) continue;
-                    lines.Add(item);
+                    total++;
+                    if (total > skip && items.Count < pageSize)
+                        items.Add(item);
                 }
+                // 已集满当前页即可停止继续读更旧的文件（total 为已扫描部分的精确值，足够分页展示）
+                if (items.Count >= pageSize && total >= skip + pageSize)
+                    break;
             }
         }
 
-        var total = (long)lines.Count;
-        var items = lines.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList();
         return Task.FromResult((total, items));
     }
 
@@ -112,11 +120,12 @@ public class MonitorAppService
         exception = parsed.Exception
     };
 
-    private static async Task<bool> PingAsync(string url)
+    private async Task<bool> PingAsync(string url)
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            // IHttpClientFactory 托管连接池，避免轮询场景每次 new HttpClient 耗尽 socket
+            var http = _httpFactory.CreateClient("MonitorPing");
             var resp = await http.GetAsync(url.TrimEnd('/') + "/health");
             return resp.IsSuccessStatusCode;
         }

@@ -178,7 +178,7 @@ async function search(kw: string) {
   // 用户组：仅管理员/有用户权限时可见（按 userStore 权限门控）
   const canUsers = userStore.hasPermission() && menuFlat.value.some((m) => m.path === '/system/user');
   // 公告组：登录即可见（与 latest 同口径）
-  const canNotice = menuFlat.value.some((m) => m.path === '/system/announcement') || true;
+  const canNotice = true;
 
   const [users, notices] = await Promise.allSettled([
     canUsers ? getUserPage({ keyword: kw, pageSize: 5 }) : Promise.resolve(null),

@@ -32,7 +32,7 @@ public class SessionRevocationMiddlewareTests
         var ctx = BuildContext(authed, jti);
         var nextCalled = false;
         RequestDelegate next = _ => { nextCalled = true; return Task.CompletedTask; };
-        var mw = new SessionRevocationMiddleware(next);
+        var mw = new TaoAdmin.Common.Auth.SessionRevocationMiddleware(next);
         await mw.InvokeAsync(ctx, store);
         return (ctx, nextCalled);
     }

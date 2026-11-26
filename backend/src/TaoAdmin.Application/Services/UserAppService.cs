@@ -63,6 +63,7 @@ public class UserAppService
     {
         if (string.IsNullOrWhiteSpace(req.username))
             throw new DomainException("账号不能为空");
+        ValidateUserLengths(req);
 
         if (string.IsNullOrEmpty(req.id))
         {
@@ -188,4 +189,13 @@ public class UserAppService
         => await _users.ReplaceRolesAsync(id, roleIds.Select(long.Parse).ToList());
 
     private long NewId() => _snowflake.NextId();
+
+    /// <summary>长度校验：与数据库列宽对齐（用户名/昵称 50、手机 20、邮箱 100），超长提前拦截避免 DB 异常 500</summary>
+    private static void ValidateUserLengths(UserSaveRequest req)
+    {
+        if (req.username.Length > 50) throw new DomainException("账号长度不能超过 50 个字符", 400);
+        if (req.nickname is { Length: > 50 }) throw new DomainException("昵称长度不能超过 50 个字符", 400);
+        if (req.phone is { Length: > 20 }) throw new DomainException("手机号长度不能超过 20 个字符", 400);
+        if (req.email is { Length: > 100 }) throw new DomainException("邮箱长度不能超过 100 个字符", 400);
+    }
 }

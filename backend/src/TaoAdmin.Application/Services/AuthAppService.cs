@@ -94,6 +94,9 @@ public class PermissionAppService
 /// <summary>认证应用服务：登录、当前用户、退出。</summary>
 public class AuthAppService
 {
+    // 固定假哈希（对应口令 "TaoAdmin-Dummy-Password"），仅用于账号不存在时对齐 BCrypt 校验耗时
+    private const string DummyBcryptHash = "$2a$11$PGKOi6mTWEgwI7SEJkiJ5OIi/sx4cxKrExjhkESN8CqcjzXKBTW6a";
+
     private readonly ISqlSugarClient _db;
     private readonly ISysUserRepository _users;
     private readonly JwtTokenService _jwt;
@@ -133,6 +136,9 @@ public class AuthAppService
             throw new DomainException("验证码不正确或已过期", 400);
 
         var user = await _users.FindByNameAsync(request.username);
+        // 防时序枚举：账号不存在时也对固定假哈希跑一次 BCrypt 校验，使两种失败的耗时一致，无法凭响应时间探测账号是否存在
+        if (user == null)
+            BCrypt.Net.BCrypt.Verify(request.password, DummyBcryptHash);
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.password, user.Password))
         {
             _lockout.RecordFailure(request.username, security.LoginMaxFails, security.LoginLockMinutes);

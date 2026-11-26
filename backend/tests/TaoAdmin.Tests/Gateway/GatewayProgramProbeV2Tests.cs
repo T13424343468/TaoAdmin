@@ -59,10 +59,15 @@ public class GatewayProgramProbeV2Tests
     [Fact]
     public async Task 代理请求_匿名与已认证均走透传转换()
     {
-        // 下游 5001 不可达：转换在转发前执行，断言代理链路真实走完（5xx 即网关已尝试转发）
+        // 下游指向不可达端口（封闭环境）：转换在转发前执行，断言代理链路真实走完（5xx 即网关已尝试转发）
         var factory = new WebApplicationFactory<GatewayResourceCollector>()
-            .WithWebHostBuilder(b => b.UseSetting("Monitor:LogDir",
-                Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}")));
+            .WithWebHostBuilder(b =>
+            {
+                b.UseSetting("Monitor:LogDir",
+                    Path.Combine(Path.GetTempPath(), $"tao-gw2-logs-{Guid.NewGuid():N}"));
+                b.UseSetting("ReverseProxy:Clusters:identity:Destinations:d1:Address", "http://127.0.0.1:59999/");
+                b.UseSetting("ReverseProxy:Clusters:task:Destinations:d1:Address", "http://127.0.0.1:59999/");
+            });
         try
         {
             var client = factory.CreateClient();

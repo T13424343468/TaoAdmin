@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch } from 'vue';
 import PageLayout from '@/components/PageLayout/index.vue';
 import dayjs, { type Dayjs } from 'dayjs';
 import FilterBar, { type FilterField } from '@/components/FilterBar/index.vue';
@@ -212,6 +212,18 @@ onMounted(async () => {
   const services = (await getServices().catch(() => [])) || [];
   allServices.value = services;
   serviceOptionsForFilter.value = services.map((s) => ({ label: s.displayName || s.serviceName, value: s.serviceName }));
+});
+
+// keep-alive 缓存下切走时暂停自动刷新、切回时恢复，避免后台空转
+onDeactivated(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+});
+
+onActivated(() => {
+  if (autoRefresh.value && !refreshTimer) refreshTimer = setInterval(() => loadData(), 10000);
 });
 
 onUnmounted(() => {

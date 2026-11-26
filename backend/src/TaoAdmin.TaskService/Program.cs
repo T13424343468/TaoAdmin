@@ -1,5 +1,6 @@
 ﻿using TaoAdmin.Application.Services;
 using TaoAdmin.Common.Cache;
+using TaoAdmin.Common.Auth;
 using Nacos;
 using Nacos.AspNetCore.V2;
 using TaoAdmin.Common.Snowflake;
@@ -50,7 +51,10 @@ if (builder.Configuration.GetValue<bool>("Nacos:Enabled"))
 // ==================== SqlSugar + Redis + 雪花ID ====================
 builder.Services.AddSqlSugar(builder.Configuration);
 var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ => StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnection));
+// AbortOnConnectFail=false：Redis 不可用不阻断启动（会话镜像降级为本进程语义），连接后台自动重试
+var redisOptions = StackExchange.Redis.ConfigurationOptions.Parse(redisConnection);
+redisOptions.AbortOnConnectFail = false;
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ => StackExchange.Redis.ConnectionMultiplexer.Connect(redisOptions));
 builder.Services.AddSingleton<RedisHelper>();
 // 资源监控（②）：本机指标采集器
 builder.Services.AddSingleton<TaoAdmin.Common.Monitoring.ResourceCollector>(_ =>
@@ -82,6 +86,15 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, TaoAdmin.Common.Auth.PermissionPolicyProvider>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, TaoAdmin.Common.Auth.PermissionAuthorizationHandler>();
 
+// ==================== 在线会话（仅用其 Redis 吊销镜像做跨服务校验） ====================
+builder.Services.AddSingleton(sp =>
+{
+    var expireMinutes = builder.Configuration.GetValue<int>("Jwt:ExpireMinutes", 120);
+    var store = new OnlineSessionStore(expireMinutes);
+    store.AttachRedis(sp.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>());
+    return store;
+});
+
 // ==================== Quartz ====================
 builder.Services.AddSingleton<IJobFactory, JobFactory>();
 builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
@@ -111,6 +124,8 @@ builder.Services.AddOpenApi("v1", o =>
 var app = builder.Build();
 
 app.UseAuthentication();
+// 会话吊销校验：吊销状态经 Redis 与 IdentityService 共享，强制下线全服务即刻生效（须在 UseAuthentication 之后）
+app.UseMiddleware<TaoAdmin.Common.Auth.SessionRevocationMiddleware>();
 app.MapGet("/health", () => Results.Ok(new { status = "UP", service = "taoadmin-task" }));
 // 资源指标端点（②）：本进程 CPU/内存/磁盘/网络快照，供网关聚合与监控中心采样
 app.MapGet("/metrics/resources", (TaoAdmin.Common.Monitoring.ResourceCollector collector) =>

@@ -27,13 +27,13 @@ public class GatewayProgramProbeTests
             Assert.Contains("UP", body);
             Assert.Contains("taoadmin-gateway", body);
 
+            // 安全加固后口径：资源指标端点要求已认证，匿名访问被拒（防匿名探测服务器资源）
             var metrics = await client.GetAsync("/metrics/resources");
-            Assert.True(metrics.IsSuccessStatusCode);
-            Assert.Contains("cpuPercent", await metrics.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, metrics.StatusCode);
 
-            // 聚合端点：下游不可达时逐服务降级，不阻塞本端点
+            // 聚合端点：同样要求已认证
             var aggregate = await client.GetAsync("/metrics/aggregate");
-            Assert.True(aggregate.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, aggregate.StatusCode);
         }
         finally
         {

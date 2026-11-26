@@ -50,6 +50,8 @@ public class RoleAppService
         else
         {
             var role = await _roles.FindByIdAsync(long.Parse(req.id)) ?? throw new DomainException("角色不存在", 404);
+            if (await _db.Queryable<SysRole>().AnyAsync(r => r.RoleCode == req.code && r.Id != role.Id && r.IsDeleted == false))
+                throw new DomainException("角色编码已存在", 400);
             role.RoleName = req.name;
             role.RoleCode = req.code;
             role.Status = req.status;

@@ -30,7 +30,7 @@ public class IdentityEdgeCaseTests
 
         var nextCalled = false;
         Microsoft.AspNetCore.Http.RequestDelegate next = _ => { nextCalled = true; return Task.CompletedTask; };
-        var mw = new SessionRevocationMiddleware(next);
+        var mw = new TaoAdmin.Common.Auth.SessionRevocationMiddleware(next);
 
         await mw.InvokeAsync(ctx, new OnlineSessionStore());
 
@@ -42,7 +42,7 @@ public class IdentityEdgeCaseTests
         ctx2.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity());
         var nextCalled2 = false;
         Microsoft.AspNetCore.Http.RequestDelegate next2 = _ => { nextCalled2 = true; return Task.CompletedTask; };
-        await new SessionRevocationMiddleware(next2).InvokeAsync(ctx2, new OnlineSessionStore());
+        await new TaoAdmin.Common.Auth.SessionRevocationMiddleware(next2).InvokeAsync(ctx2, new OnlineSessionStore());
         Assert.True(nextCalled2);
         Assert.NotEqual(401, ctx2.Response.StatusCode);
     }

@@ -47,16 +47,30 @@ public class MessageQueuePump : BackgroundService
         logger.LogInformation("消息泵构造完成：{Count} 个处理器", _handlers.Count());
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("消息泵启动中：提供方 {Provider}", _mq.ProviderName);
         var handlerList = _handlers.ToList();
         _logger.LogInformation("消息队列已启动：提供方 {Provider}，订阅主题 {Topics}",
             _mq.ProviderName, string.Join(", ", handlerList.Select(h => h.Topic).Distinct()));
+        // 逐个等待订阅完成；失败按退避重试（最多 5 次），避免启动瞬间 MQ 未就绪导致订阅静默丢失
         foreach (var handler in handlerList)
         {
-            _ = _mq.SubscribeAsync(handler.Topic, handler.HandleAsync, stoppingToken);
+            const int maxAttempts = 5;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    await _mq.SubscribeAsync(handler.Topic, handler.HandleAsync, stoppingToken);
+                    break;
+                }
+                catch (Exception ex) when (attempt < maxAttempts && !stoppingToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "订阅主题 {Topic} 第 {Attempt} 次失败，{Delay} 秒后重试",
+                        handler.Topic, attempt, attempt * 2);
+                    await Task.Delay(TimeSpan.FromSeconds(attempt * 2), stoppingToken);
+                }
+            }
         }
-        return Task.CompletedTask;
     }
 }

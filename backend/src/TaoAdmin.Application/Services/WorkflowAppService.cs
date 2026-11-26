@@ -148,20 +148,23 @@ public class WorkflowAppService
             TenantId = tenantId,
             Status = 0
         };
-        await _db.Insertable(instance).ExecuteCommandAsync();
-        await _db.Insertable(firstTask).ExecuteCommandAsync();
+        await _db.Ado.UseTranAsync(async () =>
+        {
+            await _db.Insertable(instance).ExecuteCommandAsync();
+            await _db.Insertable(firstTask).ExecuteCommandAsync();
+        });
         return instance.Id.ToString();
     }
 
-    /// <summary>待办任务：拥有对应审批角色的当前用户可看到的任务（超管看全部；非超管仅限平台公共 + 本租户任务）</summary>
+    /// <summary>待办任务：拥有对应审批角色的当前用户可看到的任务（超管看全部；非超管仅限平台公共 + 本租户任务）。角色/租户条件下推 SQL，避免全表内存过滤</summary>
     public async Task<List<WorkflowTaskDto>> GetMyTasksAsync(long userId, List<string> roleCodes, bool isSuperAdmin, long tenantId = 0)
     {
-        var tasks = await _db.Queryable<SysWorkflowTask>()
-            .Where(t => t.Status == 0 && t.IsDeleted == false)
-            .ToListAsync();
+        var query = _db.Queryable<SysWorkflowTask>()
+            .Where(t => t.Status == 0 && t.IsDeleted == false);
         if (!isSuperAdmin)
-            tasks = tasks.Where(t => roleCodes.Contains(t.AssigneeRoleCode)
-                && (t.TenantId == 0 || t.TenantId == tenantId)).ToList();
+            query = query.Where(t => roleCodes.Contains(t.AssigneeRoleCode)
+                && (t.TenantId == 0 || t.TenantId == tenantId));
+        var tasks = await query.ToListAsync();
         return await ToDtos(tasks);
     }
 
@@ -181,49 +184,59 @@ public class WorkflowAppService
             ?? throw new DomainException("流程实例不存在", 404);
         var nodes = ParseNodes((await _db.Queryable<SysWorkflow>().FirstAsync(w => w.Id == instance.WorkflowId))?.NodesJson);
 
-        task.Status = req.approved ? 1 : 2;
-        task.Comment = req.comment;
-        task.HandlerName = handlerName;
-        task.HandleTime = DateTime.Now;
-        task.UpdatedAt = DateTime.Now;
-        await _db.Updateable(task).ExecuteCommandAsync();
+        var newStatus = req.approved ? 1 : 2;
+        var tran = await _db.Ado.UseTranAsync(async () =>
+        {
+            // 条件更新作并发闸门：仅当任务仍为待处理时生效，防止两个审批人并发双通过
+            var affected = await _db.Updateable<SysWorkflowTask>()
+                .SetColumns(t => t.Status == newStatus)
+                .SetColumns(t => t.Comment == req.comment)
+                .SetColumns(t => t.HandlerName == handlerName)
+                .SetColumns(t => t.HandleTime == DateTime.Now)
+                .SetColumns(t => t.UpdatedAt == DateTime.Now)
+                .Where(t => t.Id == taskId && t.Status == 0 && t.IsDeleted == false)
+                .ExecuteCommandAsync();
+            if (affected == 0)
+                throw new DomainException("该任务已处理，请勿重复操作", 400);
 
-        if (!req.approved)
-        {
-            // 驳回：流程终止
-            instance.Status = 3;
-            instance.FinishedAt = DateTime.Now;
-            instance.UpdatedAt = DateTime.Now;
-            await _db.Updateable(instance).ExecuteCommandAsync();
-            return;
-        }
-
-        var nextIndex = task.NodeIndex + 1;
-        if (nextIndex >= nodes.Count)
-        {
-            // 最后一级通过：流程完成
-            instance.Status = 2;
-            instance.FinishedAt = DateTime.Now;
-            instance.UpdatedAt = DateTime.Now;
-            await _db.Updateable(instance).ExecuteCommandAsync();
-        }
-        else
-        {
-            // 推进下一节点，生成新的待办任务
-            instance.CurrentNodeIndex = nextIndex;
-            instance.UpdatedAt = DateTime.Now;
-            await _db.Updateable(instance).ExecuteCommandAsync();
-            await _db.Insertable(new SysWorkflowTask
+            if (!req.approved)
             {
-                Id = NewId(),
-                InstanceId = instance.Id,
-                NodeName = nodes[nextIndex].name,
-                NodeIndex = nextIndex,
-                AssigneeRoleCode = nodes[nextIndex].approverRole,
-                TenantId = task.TenantId != 0 ? task.TenantId : tenantId,
-                Status = 0
-            }).ExecuteCommandAsync();
-        }
+                // 驳回：流程终止
+                instance.Status = 3;
+                instance.FinishedAt = DateTime.Now;
+                instance.UpdatedAt = DateTime.Now;
+                await _db.Updateable(instance).ExecuteCommandAsync();
+                return;
+            }
+
+            var nextIndex = task.NodeIndex + 1;
+            if (nextIndex >= nodes.Count)
+            {
+                // 最后一级通过：流程完成
+                instance.Status = 2;
+                instance.FinishedAt = DateTime.Now;
+                instance.UpdatedAt = DateTime.Now;
+                await _db.Updateable(instance).ExecuteCommandAsync();
+            }
+            else
+            {
+                // 推进下一节点，生成新的待办任务
+                instance.CurrentNodeIndex = nextIndex;
+                instance.UpdatedAt = DateTime.Now;
+                await _db.Updateable(instance).ExecuteCommandAsync();
+                await _db.Insertable(new SysWorkflowTask
+                {
+                    Id = NewId(),
+                    InstanceId = instance.Id,
+                    NodeName = nodes[nextIndex].name,
+                    NodeIndex = nextIndex,
+                    AssigneeRoleCode = nodes[nextIndex].approverRole,
+                    TenantId = task.TenantId != 0 ? task.TenantId : tenantId,
+                    Status = 0
+                }).ExecuteCommandAsync();
+            }
+        });
+        if (!tran.IsSuccess) throw new DomainException($"审批失败：{tran.ErrorMessage}");
     }
 
     /// <summary>我的/全部流程实例分页（非超管只见自己发起的）</summary>
@@ -262,11 +275,13 @@ public class WorkflowAppService
         return new PageResult<WorkflowInstanceDto>(total, pageIndex, pageSize, items);
     }
 
-    /// <summary>实例详情（含全部任务历史）</summary>
-    public async Task<(WorkflowInstanceDto Instance, List<WorkflowTaskDto> Tasks)> GetDetailAsync(long instanceId)
+    /// <summary>实例详情（含全部任务历史；非超管仅限本人发起的实例）</summary>
+    public async Task<(WorkflowInstanceDto Instance, List<WorkflowTaskDto> Tasks)> GetDetailAsync(long instanceId, long userId, bool isSuperAdmin)
     {
         var i = await _db.Queryable<SysWorkflowInstance>().FirstAsync(x => x.Id == instanceId && x.IsDeleted == false)
             ?? throw new DomainException("流程实例不存在", 404);
+        if (!isSuperAdmin && i.ApplicantId != userId)
+            throw new DomainException("无权查看他人发起的流程", 403);
         var tasks = await _db.Queryable<SysWorkflowTask>()
             .Where(t => t.InstanceId == instanceId).OrderBy(t => t.NodeIndex).ToListAsync();
         var dto = new WorkflowInstanceDto
@@ -343,7 +358,9 @@ public class TenantAppService
         }
         else
         {
-            var t = await _db.Queryable<SysTenant>().FirstAsync(x => x.Id == id) ?? throw new DomainException("租户不存在", 404);
+            var t = await _db.Queryable<SysTenant>().FirstAsync(x => x.Id == id && x.IsDeleted == false) ?? throw new DomainException("租户不存在", 404);
+            if (await _db.Queryable<SysTenant>().AnyAsync(x => x.TenantCode == tenantCode && x.Id != id && x.IsDeleted == false))
+                throw new DomainException("租户编码已存在", 400);
             t.TenantName = tenantName; t.TenantCode = tenantCode; t.Contact = contact; t.Remark = remark; t.Status = status;
             t.UpdatedAt = DateTime.Now;
             await _db.Updateable(t).ExecuteCommandAsync();
@@ -406,31 +423,33 @@ public class MessageAppService
         return (total, items);
     }
 
-    /// <summary>标记已读</summary>
-    public async Task MarkReadAsync(long id)
+    /// <summary>标记已读（仅限收件人或平台广播）</summary>
+    public async Task MarkReadAsync(long id, long userId)
     {
         var m = await _db.Queryable<SysMessage>().FirstAsync(x => x.Id == id) ?? throw new DomainException("消息不存在", 404);
+        if (m.ReceiverId != 0 && m.ReceiverId != userId)
+            throw new DomainException("无权操作他人消息", 403);
         m.IsRead = true; m.UpdatedAt = DateTime.Now;
         await _db.Updateable(m).ExecuteCommandAsync();
     }
 
-    /// <summary>批量删除消息（软删，返回实际删除数）</summary>
-    public async Task<int> BatchDeleteAsync(List<long> ids)
+    /// <summary>批量删除消息（软删，返回实际删除数；仅限收件人或平台广播）</summary>
+    public async Task<int> BatchDeleteAsync(List<long> ids, long userId)
     {
         var now = DateTime.Now;
         return await _db.Updateable<SysMessage>()
             .SetColumns(m => new SysMessage { IsDeleted = true, UpdatedAt = now })
-            .Where(m => ids.Contains(m.Id) && m.IsDeleted == false)
+            .Where(m => ids.Contains(m.Id) && m.IsDeleted == false && (m.ReceiverId == 0 || m.ReceiverId == userId))
             .ExecuteCommandAsync();
     }
 
-    /// <summary>批量标记已读（返回实际更新数）</summary>
-    public async Task<int> BatchMarkReadAsync(List<long> ids)
+    /// <summary>批量标记已读（返回实际更新数；仅限收件人或平台广播）</summary>
+    public async Task<int> BatchMarkReadAsync(List<long> ids, long userId)
     {
         var now = DateTime.Now;
         return await _db.Updateable<SysMessage>()
             .SetColumns(m => new SysMessage { IsRead = true, UpdatedAt = now })
-            .Where(m => ids.Contains(m.Id) && m.IsDeleted == false && m.IsRead == false)
+            .Where(m => ids.Contains(m.Id) && m.IsDeleted == false && m.IsRead == false && (m.ReceiverId == 0 || m.ReceiverId == userId))
             .ExecuteCommandAsync();
     }
 

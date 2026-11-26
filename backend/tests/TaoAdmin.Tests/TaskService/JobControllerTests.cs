@@ -356,7 +356,9 @@ public class JobControllerTests
         var result = await _controller.Delete(id);
 
         Assert.True(result.Success);
-        Assert.Equal(0, _db.Queryable<SysJob>().Count()); // 任务已从库中删除
+        // 软删口径：行仍在库但 IsDeleted 置位，业务查询不再可见
+        Assert.Equal(1, _db.Queryable<SysJob>().Count());
+        Assert.True(_db.Queryable<SysJob>().First().IsDeleted);
     }
 
     // ---------- 分页关键字过滤 ----------

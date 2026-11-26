@@ -197,7 +197,7 @@
       </div>
       <a-layout-content class="app-content" :class="{ 'app-content-dark': themeStore.isDark }">
         <router-view v-slot="{ Component, route: viewRoute }">
-          <keep-alive>
+          <keep-alive :max="15">
             <component :is="Component" :key="viewRoute.path" />
           </keep-alive>
         </router-view>
@@ -259,6 +259,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, h, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { resetDynamicRoutes } from '@/router';
 import { message } from 'ant-design-vue';
 import type { ItemType } from 'ant-design-vue';
 import {
@@ -522,6 +523,9 @@ watch(
 
 async function onLogout() {
   await userStore.logout();
+  // 登出清干净：动态路由、页签与 keep-alive 缓存一并重置，避免残留到下一个账号
+  resetDynamicRoutes();
+  tabsStore.closeAll();
   router.push('/login');
 }
 

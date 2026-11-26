@@ -122,14 +122,20 @@ public class DictAppService(ISqlSugarClient db, SnowflakeIdGenerator snowflake)
         }
     }
 
-    /// <summary>删除字典类型（软删，连同明细）</summary>
+    /// <summary>删除字典类型（软删，连同明细；先查类型再删，两条语句包事务）</summary>
     public async Task DeleteTypeAsync(string id)
     {
         var tid = long.Parse(id);
-        await db.Updateable<SysDictType>().SetColumns(t => new SysDictType { IsDeleted = true, UpdatedAt = DateTime.Now })
-            .Where(t => t.Id == tid).ExecuteCommandAsync();
-        await db.Updateable<SysDictData>().SetColumns(d => new SysDictData { IsDeleted = true, UpdatedAt = DateTime.Now })
-            .Where(d => d.DictCode == (db.Queryable<SysDictType>().First(x => x.Id == tid).DictCode)).ExecuteCommandAsync();
+        var type = await db.Queryable<SysDictType>().FirstAsync(t => t.Id == tid && t.IsDeleted == false)
+            ?? throw new DomainException("字典类型不存在", 404);
+        var tran = await db.Ado.UseTranAsync(async () =>
+        {
+            await db.Updateable<SysDictType>().SetColumns(t => new SysDictType { IsDeleted = true, UpdatedAt = DateTime.Now })
+                .Where(t => t.Id == tid).ExecuteCommandAsync();
+            await db.Updateable<SysDictData>().SetColumns(d => new SysDictData { IsDeleted = true, UpdatedAt = DateTime.Now })
+                .Where(d => d.DictCode == type.DictCode).ExecuteCommandAsync();
+        });
+        if (!tran.IsSuccess) throw new DomainException($"删除失败：{tran.ErrorMessage}");
     }
 
     /// <summary>删除字典数据（软删）</summary>

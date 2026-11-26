@@ -60,6 +60,10 @@ builder.Services.AddReverseProxy()
 
 // ==================== JWT 认证（网关统一鉴权） ====================
 var jwt = builder.Configuration.GetSection("Jwt");
+// SecretKey 缺失即启动失败（fail-fast）：静默回退默认值会让令牌签名可预测，属安全红线
+var jwtSecretKey = jwt["SecretKey"];
+if (string.IsNullOrWhiteSpace(jwtSecretKey))
+    throw new InvalidOperationException("配置缺失：Jwt:SecretKey 未设置（网关启动失败，请补齐配置后重启）");
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options =>
     {
@@ -71,7 +75,7 @@ builder.Services.AddAuthentication("Bearer")
             ValidAudience = jwt["Audience"],
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-                System.Text.Encoding.UTF8.GetBytes(jwt["SecretKey"] ?? "TaoAdmin@Default#Secret")),
+                System.Text.Encoding.UTF8.GetBytes(jwtSecretKey)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
@@ -110,8 +114,18 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // ==================== 跨域 ====================
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
-    .AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+// 允许来源从配置 Cors:AllowedOrigins 读取（逗号分隔）；未配置则不允许跨域（同源部署经 Nginx 反代，无需 CORS）
+var corsOrigins = builder.Configuration["Cors:AllowedOrigins"];
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+{
+    if (!string.IsNullOrWhiteSpace(corsOrigins))
+    {
+        var origins = corsOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (origins.Length > 0)
+            p.WithOrigins(origins);
+    }
+    p.AllowAnyHeader().AllowAnyMethod();
+}));
 
 // ==================== 资源监控（②）：本机指标 + 全服务聚合 ====================
 builder.Services.AddHttpClient();
@@ -141,12 +155,12 @@ if (builder.Configuration.GetValue<bool>("RateLimiting:Enabled", true))
     app.UseRateLimiter();
 // 健康检查端点（供监控中心探测）
 app.MapGet("/health", () => Results.Ok(new { status = "UP", service = "taoadmin-gateway" }));
-// 资源指标端点（②）：本进程 CPU/内存/磁盘/网络快照，供网关聚合与监控中心采样
+// 资源指标端点（②）：本进程 CPU/内存/磁盘/网络快照，供网关聚合与监控中心采样（要求已认证，防匿名探测服务器资源）
 app.MapGet("/metrics/resources", (GatewayResourceCollector collector) =>
-    Results.Ok(collector.Collect()));
-// 全服务资源聚合（②）：逐服务拉取指标汇总成一份视图
+    Results.Ok(collector.Collect())).RequireAuthorization();
+// 全服务资源聚合（②）：逐服务拉取指标汇总成一份视图（要求已认证）
 app.MapGet("/metrics/aggregate", async (ResourceAggregationService aggregation, CancellationToken ct) =>
-    Results.Ok(await aggregation.AggregateAsync(ct)));
+    Results.Ok(await aggregation.AggregateAsync(ct))).RequireAuthorization();
 // 登录/刷新接口放行，其余要求已认证
 app.UseAuthentication();
 app.UseAuthorization();

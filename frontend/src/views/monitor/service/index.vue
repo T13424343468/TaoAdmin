@@ -58,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
 import { getServices, type ServiceItem } from '@/api/monitor';
 
 const loading = ref(false);
@@ -97,6 +97,21 @@ onMounted(() => {
   loadData();
   // 每 30 秒自动刷新
   timer = setInterval(loadData, 30000);
+});
+
+// keep-alive 缓存下切走时暂停轮询、切回时恢复，避免后台空转
+onDeactivated(() => {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+});
+
+onActivated(() => {
+  if (!timer) {
+    loadData();
+    timer = setInterval(loadData, 30000);
+  }
 });
 
 onUnmounted(() => {

@@ -127,9 +127,9 @@ public class CodeGenAppServiceTests
         Assert.True(result.executed);
         Assert.Contains(result.actions, a => a.Contains("已建表 biz_contract"));
 
-        // 实际列存在性（含基类四列）
+        // 实际列存在性（含基类四列；列名统一帕斯卡命名，GetColumns 已转小写比对）
         var cols = GetColumns(db, "biz_contract");
-        Assert.True(cols.IsSupersetOf(new[] { "id", "title", "amount", "sign_date", "level", "created_at", "updated_at", "is_deleted" }));
+        Assert.True(cols.IsSupersetOf(new[] { "id", "title", "amount", "signdate", "level", "createdat", "updatedat", "isdeleted" }));
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class CodeGenAppServiceTests
 
         var result = await svc.SyncToDatabaseAsync(id);
         Assert.True(result.executed);
-        Assert.Contains(result.actions, a => a.Contains("已加列 remark"));
+        Assert.Contains(result.actions, a => a.Contains("已加列 Remark"));
     }
 
     [Fact]
@@ -212,7 +212,7 @@ public class CodeGenAppServiceTests
             await svc.SaveDesignAsync(req);
             var second = await svc.SyncToDatabaseAsync(id);
             Assert.True(second.executed);
-            Assert.Contains(second.actions, a => a.Contains("已加列 owner"));
+            Assert.Contains(second.actions, a => a.Contains("已加列 Owner"));
 
             // 幂等收尾：再跑一次不再有动作
             var third = await svc.SyncToDatabaseAsync(id);
@@ -414,8 +414,8 @@ public class CodeGenAppServiceTests
             using var reader = cmd.ExecuteReader();
             var idx = new HashSet<string>();
             while (reader.Read()) idx.Add(reader.GetString(0));
-            Assert.Contains("idx_biz_full_big_id", idx);
-            Assert.Contains("idx_biz_full_extra", idx);
+            Assert.Contains("idx_biz_full_BigId", idx);
+            Assert.Contains("idx_biz_full_Extra", idx);
         }
 
         // 一键生成：各类型 DDL/实体特性/前端控件全分支
@@ -423,7 +423,7 @@ public class CodeGenAppServiceTests
 
         // DDL 事实断真实落库（PRAGMA table_info：类型与默认值）
         var infos = GetColumnInfos(db, "biz_full");
-        Assert.Equal("bigint", infos["big_id"].Type);                          // long 列类型
+        Assert.Equal("bigint", infos["bigid"].Type);                           // long 列类型
         Assert.Equal("boolean", infos["flag"].Type);                           // bool 列类型
         Assert.Equal("5", infos["cnt"].Default);                               // 数值默认值
         Assert.Equal("1", infos["flag"].Default);                              // bool true/1 → 1
@@ -509,7 +509,7 @@ public class CodeGenAppServiceTests
 
         var second = await mysqlSvc.SyncToDatabaseAsync(id);
         Assert.True(second.executed);
-        Assert.Contains(second.actions, a => a.Contains("已加列 remark"));
+        Assert.Contains(second.actions, a => a.Contains("已加列 Remark"));
         Assert.Empty(second.destructivePending);
     }
 
@@ -816,7 +816,7 @@ public class CodeGenAppServiceTests
 
         var result = await svc.SyncToDatabaseAsync(masterId);
         Assert.Contains(result.actions, a => a.Contains("[从表]"));
-        Assert.Contains(GetColumns(db, "biz_contract_item"), c => c == "contract_id");
+        Assert.Contains(GetColumns(db, "biz_contract_item"), c => c == "contractid");
         // 幂等：再跑一次不重复执行
         var again = await svc.SyncToDatabaseAsync(masterId);
         Assert.DoesNotContain(again.actions, a => a.Contains("已建表"));
@@ -843,8 +843,8 @@ public class CodeGenAppServiceTests
 
         // 主表页面：行编辑 + 详情抽屉 + 保存契约
         var masterPage = gen.files.First(f => f.path.EndsWith("views/bizContract/index.vue"));
-        Assert.Contains("addDetailRow(0)", masterPage.content);
-        Assert.Contains("detailColumns(0)", masterPage.content);
+        Assert.Contains("addDetailRow(Number(di))", masterPage.content);
+        Assert.Contains("detailColumns(Number(di))", masterPage.content);
         Assert.Contains("openDetail", masterPage.content);
         Assert.Contains("a-drawer", masterPage.content);
         Assert.Contains("payload['details' + i]", masterPage.content);
